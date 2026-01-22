@@ -804,51 +804,35 @@ async function generateShareLink() {
     
     let success = false;
     
-    // 1차 시도: extendsclass.com (CORS 지원 확인됨)
+    // CORS 프록시를 통한 jsonblob.com 사용
     if (!success) {
         try {
-            const response = await fetch('https://json.extendsclass.com/bin', {
+            // corsproxy.io를 통해 CORS 우회
+            const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://jsonblob.com/api/jsonBlob'), {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json',
-                    'Security-key': 'rpformatter'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(shareData)
             });
             
             if (response.ok) {
-                const result = await response.json();
-                if (result && result.id) {
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?ec=${result.id}`;
-                    linkInput.value = shareUrl;
-                    statusEl.textContent = '✓ 링크가 생성되었습니다!';
-                    statusEl.className = 'share-status success';
-                    copyBtn.disabled = false;
-                    success = true;
-                }
-            }
-        } catch (e) {
-            console.log('extendsclass 실패:', e);
-        }
-    }
-    
-    // 2차 시도: jsonblob.com
-    if (!success) {
-        try {
-            const response = await fetch('https://jsonblob.com/api/jsonBlob', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(shareData)
-            });
-            
-            if (response.ok) {
-                // jsonblob은 Location 헤더에 URL 반환
+                // 응답 헤더에서 blob ID 추출
                 const location = response.headers.get('Location') || response.headers.get('X-Jsonblob');
+                let blobId = null;
+                
                 if (location) {
-                    const blobId = location.split('/').pop();
+                    blobId = location.split('/').pop();
+                } else {
+                    // 헤더가 없으면 응답 본문에서 시도
+                    const text = await response.text();
+                    // jsonblob URL 패턴 찾기
+                    const match = text.match(/jsonblob\.com\/api\/jsonBlob\/([a-f0-9-]+)/i) ||
+                                  text.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+                    if (match) blobId = match[1];
+                }
+                
+                if (blobId) {
                     const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
                     linkInput.value = shareUrl;
                     statusEl.textContent = '✓ 링크가 생성되었습니다!';
@@ -858,7 +842,36 @@ async function generateShareLink() {
                 }
             }
         } catch (e) {
-            console.log('jsonblob 실패:', e);
+            console.log('jsonblob (프록시) 실패:', e);
+        }
+    }
+    
+    // 2차 시도: 다른 CORS 프록시
+    if (!success) {
+        try {
+            const response = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://jsonblob.com/api/jsonBlob'), {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(shareData)
+            });
+            
+            if (response.ok) {
+                const text = await response.text();
+                const match = text.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+                if (match) {
+                    const blobId = match[1];
+                    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
+                    linkInput.value = shareUrl;
+                    statusEl.textContent = '✓ 링크가 생성되었습니다!';
+                    statusEl.className = 'share-status success';
+                    copyBtn.disabled = false;
+                    success = true;
+                }
+            }
+        } catch (e) {
+            console.log('allorigins 실패:', e);
         }
     }
     
@@ -905,49 +918,36 @@ function copyShareLink() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // extendsclass ID (새 방식)
-    const extendsclassId = urlParams.get('ec');
     // jsonblob ID
     const blobId = urlParams.get('id');
-    // JSONkeeper ID (하위 호환성)
-    const jsonkeeperId = urlParams.get('jk');
     // 압축 데이터 (기존 방식)
     const compressedData = urlParams.get('d');
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
-    // extendsclass에서 불러오기
-    if (extendsclassId) {
-        try {
-            const response = await fetch(`https://json.extendsclass.com/bin/${extendsclassId}`);
-            if (response.ok) {
-                decoded = await response.json();
-            }
-        } catch (e) {
-            console.error('extendsclass 데이터 로드 실패:', e);
-        }
-    }
-    // jsonblob에서 불러오기
-    else if (blobId) {
+    // jsonblob에서 불러오기 (CORS 프록시 사용)
+    if (blobId) {
+        // 먼저 직접 시도
         try {
             const response = await fetch(`https://jsonblob.com/api/jsonBlob/${blobId}`);
             if (response.ok) {
                 decoded = await response.json();
             }
         } catch (e) {
-            console.error('jsonblob 데이터 로드 실패:', e);
+            console.log('jsonblob 직접 로드 실패, 프록시 시도:', e);
         }
-    }
-    // JSONkeeper에서 불러오기 (하위 호환성)
-    else if (jsonkeeperId) {
-        try {
-            const response = await fetch(`https://jsonkeeper.com/b/${jsonkeeperId}`);
-            if (response.ok) {
-                decoded = await response.json();
+        
+        // 실패시 CORS 프록시로 시도
+        if (!decoded) {
+            try {
+                const response = await fetch('https://corsproxy.io/?' + encodeURIComponent(`https://jsonblob.com/api/jsonBlob/${blobId}`));
+                if (response.ok) {
+                    decoded = await response.json();
+                }
+            } catch (e) {
+                console.error('jsonblob 프록시 로드 실패:', e);
             }
-        } catch (e) {
-            console.error('JSONkeeper 데이터 로드 실패:', e);
         }
     }
     // 압축 데이터
