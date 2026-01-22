@@ -779,7 +779,7 @@ function closeShareModal() {
     shareModal.classList.remove('active');
 }
 
-// 클라우드에 저장하고 공유 링크 생성
+// 공유 링크 생성
 async function generateShareLink() {
     const conv = getActiveConversation();
     if (!conv) {
@@ -798,72 +798,26 @@ async function generateShareLink() {
     const linkInput = document.getElementById('shareLink');
     const copyBtn = document.getElementById('copyLinkBtn');
     
-    statusEl.textContent = '링크 생성 중...';
-    statusEl.className = 'share-status loading';
-    copyBtn.disabled = true;
-    
     // LZString 압축으로 URL 생성
     const jsonStr = JSON.stringify(shareData);
     const compressed = LZString.compressToEncodedURIComponent(jsonStr);
     const longUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
     
-    // URL이 너무 길면 단축 시도
-    if (longUrl.length > 2000) {
-        let shortened = false;
-        
-        // is.gd URL 단축 시도
-        try {
-            const response = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
-            if (response.ok) {
-                const result = await response.json();
-                if (result.shorturl) {
-                    linkInput.value = result.shorturl;
-                    statusEl.textContent = '✓ 단축 링크가 생성되었습니다!';
-                    statusEl.className = 'share-status success';
-                    copyBtn.disabled = false;
-                    shortened = true;
-                }
-            }
-        } catch (e) {
-            console.log('is.gd 단축 실패:', e);
-        }
-        
-        // v.gd 시도
-        if (!shortened) {
-            try {
-                const response = await fetch(`https://v.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.shorturl) {
-                        linkInput.value = result.shorturl;
-                        statusEl.textContent = '✓ 단축 링크가 생성되었습니다!';
-                        statusEl.className = 'share-status success';
-                        copyBtn.disabled = false;
-                        shortened = true;
-                    }
-                }
-            } catch (e) {
-                console.log('v.gd 단축 실패:', e);
-            }
-        }
-        
-        // 단축 실패시 원본 URL 사용
-        if (!shortened) {
-            linkInput.value = longUrl;
-            statusEl.textContent = '⚠️ URL이 깁니다. 아래 서비스에서 단축해주세요.';
-            statusEl.className = 'share-status loading';
-            copyBtn.disabled = false;
-            // 단축 서비스 안내 표시
-            document.getElementById('shortenerHelp').style.display = 'block';
-        } else {
-            document.getElementById('shortenerHelp').style.display = 'none';
-        }
+    linkInput.value = longUrl;
+    copyBtn.disabled = false;
+    
+    // URL 길이에 따라 안내 메시지 변경
+    if (longUrl.length > 8000) {
+        statusEl.textContent = '⚠️ URL이 매우 깁니다. 단축 서비스 이용을 권장합니다.';
+        statusEl.className = 'share-status loading';
+        document.getElementById('shortenerHelp').style.display = 'block';
+    } else if (longUrl.length > 2000) {
+        statusEl.textContent = '⚠️ URL이 깁니다. 일부 앱에서 잘릴 수 있습니다.';
+        statusEl.className = 'share-status loading';
+        document.getElementById('shortenerHelp').style.display = 'block';
     } else {
-        // URL이 적당한 길이면 그대로 사용
-        linkInput.value = longUrl;
         statusEl.textContent = '✓ 링크가 생성되었습니다!';
         statusEl.className = 'share-status success';
-        copyBtn.disabled = false;
         document.getElementById('shortenerHelp').style.display = 'none';
     }
 }
@@ -872,15 +826,53 @@ function copyShareLink() {
     const linkInput = document.getElementById('shareLink');
     if (!linkInput.value) return;
     
-    linkInput.select();
-    document.execCommand('copy');
-    
+    // 클립보드 API 사용 시도
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(linkInput.value).then(() => {
+            showCopySuccess();
+        }).catch(() => {
+            // 폴백
+            linkInput.select();
+            document.execCommand('copy');
+            showCopySuccess();
+        });
+    } else {
+        linkInput.select();
+        document.execCommand('copy');
+        showCopySuccess();
+    }
+}
+
+function showCopySuccess() {
     const btn = document.getElementById('copyLinkBtn');
     const originalText = btn.textContent;
     btn.textContent = '복사됨!';
     setTimeout(() => {
         btn.textContent = originalText;
     }, 2000);
+}
+
+function copyAndOpenTinyURL() {
+    const linkInput = document.getElementById('shareLink');
+    if (!linkInput.value) return;
+    
+    // 먼저 복사
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(linkInput.value).then(() => {
+            alert('링크가 복사되었습니다!\n\nTinyURL 페이지에서 붙여넣기(Ctrl+V)하세요.');
+            window.open('https://tinyurl.com/', '_blank');
+        }).catch(() => {
+            linkInput.select();
+            document.execCommand('copy');
+            alert('링크가 복사되었습니다!\n\nTinyURL 페이지에서 붙여넣기(Ctrl+V)하세요.');
+            window.open('https://tinyurl.com/', '_blank');
+        });
+    } else {
+        linkInput.select();
+        document.execCommand('copy');
+        alert('링크가 복사되었습니다!\n\nTinyURL 페이지에서 붙여넣기(Ctrl+V)하세요.');
+        window.open('https://tinyurl.com/', '_blank');
+    }
 }
 
 // URL에서 데이터 로드
