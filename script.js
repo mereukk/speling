@@ -777,9 +777,10 @@ function openShareModal() {
         characters: characters
     };
     
-    // 데이터를 Base64로 인코딩
-    const encoded = btoa(encodeURIComponent(JSON.stringify(shareData)));
-    const shareUrl = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+    // LZString으로 압축 후 URL-safe Base64 인코딩
+    const jsonStr = JSON.stringify(shareData);
+    const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+    const shareUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
     
     document.getElementById('shareLink').value = shareUrl;
     shareModal.classList.add('active');
@@ -804,29 +805,45 @@ function copyShareLink() {
 
 function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
-    const data = urlParams.get('data');
     
-    if (data) {
+    // 새 압축 형식 (d 파라미터)
+    const compressedData = urlParams.get('d');
+    // 기존 형식 (data 파라미터) - 하위 호환성
+    const legacyData = urlParams.get('data');
+    
+    let decoded = null;
+    
+    if (compressedData) {
         try {
-            const decoded = JSON.parse(decodeURIComponent(atob(data)));
-            
-            if (decoded.conversation) {
-                // 기존 대화 목록에 추가하거나 대체
-                const existingIndex = conversations.findIndex(c => c.id === decoded.conversation.id);
-                if (existingIndex >= 0) {
-                    conversations[existingIndex] = decoded.conversation;
-                } else {
-                    conversations.push(decoded.conversation);
-                }
-                activeConversationId = decoded.conversation.id;
-            }
-            
-            if (decoded.characters) {
-                characters = { ...characters, ...decoded.characters };
-            }
-            
+            // LZString으로 압축 해제
+            const decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
+            decoded = JSON.parse(decompressed);
+        } catch (e) {
+            console.error('압축 데이터 로드 실패:', e);
+        }
+    } else if (legacyData) {
+        try {
+            // 기존 Base64 형식
+            decoded = JSON.parse(decodeURIComponent(atob(legacyData)));
         } catch (e) {
             console.error('공유 데이터 로드 실패:', e);
+        }
+    }
+    
+    if (decoded) {
+        if (decoded.conversation) {
+            // 기존 대화 목록에 추가하거나 대체
+            const existingIndex = conversations.findIndex(c => c.id === decoded.conversation.id);
+            if (existingIndex >= 0) {
+                conversations[existingIndex] = decoded.conversation;
+            } else {
+                conversations.push(decoded.conversation);
+            }
+            activeConversationId = decoded.conversation.id;
+        }
+        
+        if (decoded.characters) {
+            characters = { ...characters, ...decoded.characters };
         }
     }
 }
