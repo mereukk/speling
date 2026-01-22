@@ -837,7 +837,8 @@ async function generateShareLink() {
     statusEl.textContent = '링크 생성 중...';
     statusEl.className = 'share-status loading';
     copyBtn.disabled = true;
-    document.getElementById('shortenerHelp').style.display = 'none';
+    const shortenerHelpEl = document.getElementById('shortenerHelp');
+    if (shortenerHelpEl) shortenerHelpEl.style.display = 'none';
     
     try {
         // Firebase에 데이터 저장
