@@ -26,7 +26,17 @@
                 <div class="sidebar-section">
                     <div class="section-header">
                         <span>대화 목록</span>
-                        <button id="addTabBtn" class="btn-add" title="새 대화 추가">+</button>
+                        <div class="section-actions">
+                            <button id="toggleDeleteModeBtn" class="btn-icon" title="선택 삭제">🗑️</button>
+                            <button id="addTabBtn" class="btn-add" title="새 대화 추가">+</button>
+                        </div>
+                    </div>
+                    <div id="deleteModeBar" class="delete-mode-bar" style="display:none;">
+                        <span id="deleteModeCount">0개 선택</span>
+                        <div class="delete-mode-actions">
+                            <button id="confirmDeleteBtn" class="btn btn-danger btn-small" disabled>삭제</button>
+                            <button id="cancelDeleteBtn" class="btn btn-secondary btn-small">취소</button>
+                        </div>
                     </div>
                     <div class="conversation-list" id="conversationList">
                         <!-- 대화 목록이 여기에 동적으로 추가됨 -->

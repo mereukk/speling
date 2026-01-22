@@ -21,6 +21,8 @@ let colorIndex = 0;
 let appTitle = 'RP 포맷터';
 let currentRoomId = null; // 사이트 전체(대화목록) 공유용
 let isApplyingRemote = false; // 원격 변경 적용 중이면 재업로드 방지
+let isDeleteMode = false;
+let selectedConversationIds = new Set();
 
 // 기본 색상 팔레트 (새 캐릭터용)
 const defaultColors = ['#5865F2', '#EB459E', '#3BA55C', '#FAA61A', '#ED4245', '#9B59B6'];
@@ -94,6 +96,11 @@ function setupEventListeners() {
             saveToStorage();
         }
     });
+
+    // 선택 삭제 모드
+    document.getElementById('toggleDeleteModeBtn').addEventListener('click', toggleDeleteMode);
+    document.getElementById('cancelDeleteBtn').addEventListener('click', () => setDeleteMode(false));
+    document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDeleteSelected);
     
     // 캐릭터 추가
     document.getElementById('addCharacterBtn').addEventListener('click', addCharacter);
@@ -201,6 +208,7 @@ function getActiveCharacters() {
 }
 
 function switchConversation(id) {
+    if (isDeleteMode) return; // 삭제 모드에서는 탭 전환 방지
     activeConversationId = id;
     renderConversationList();
     renderActiveConversation();
@@ -228,6 +236,7 @@ function deleteConversation(id) {
 }
 
 function renameConversation(id) {
+    if (isDeleteMode) return;
     const conv = conversations.find(c => c.id === id);
     if (!conv) return;
     
@@ -241,15 +250,85 @@ function renameConversation(id) {
 }
 
 function renderConversationList() {
-    conversationList.innerHTML = conversations.map(conv => `
-        <div class="conversation-item ${conv.id === activeConversationId ? 'active' : ''}" 
-             data-id="${conv.id}"
-             onclick="switchConversation('${conv.id}')"
-             ondblclick="renameConversation('${conv.id}')">
-            <span class="title">${escapeHtml(conv.title)}</span>
-            <button class="delete-btn" onclick="event.stopPropagation(); deleteConversation('${conv.id}')" title="삭제">&times;</button>
-        </div>
-    `).join('');
+    if (!isDeleteMode) {
+        conversationList.innerHTML = conversations.map(conv => `
+            <div class="conversation-item ${conv.id === activeConversationId ? 'active' : ''}" 
+                 data-id="${conv.id}"
+                 onclick="switchConversation('${conv.id}')"
+                 ondblclick="renameConversation('${conv.id}')">
+                <span class="title">${escapeHtml(conv.title)}</span>
+            </div>
+        `).join('');
+        return;
+    }
+
+    // 삭제 모드: 체크박스로 선택
+    conversationList.innerHTML = conversations.map(conv => {
+        const checked = selectedConversationIds.has(conv.id) ? 'checked' : '';
+        const disabled = (conversations.length <= 1) ? 'disabled' : '';
+        return `
+            <div class="conversation-item delete-mode ${conv.id === activeConversationId ? 'active' : ''}" data-id="${conv.id}">
+                <input class="select-box" type="checkbox" ${checked} ${disabled}
+                       onchange="toggleConversationSelection('${conv.id}', this.checked)" />
+                <span class="title">${escapeHtml(conv.title)}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function setDeleteMode(enabled) {
+    isDeleteMode = enabled;
+    selectedConversationIds = new Set();
+
+    const bar = document.getElementById('deleteModeBar');
+    const btn = document.getElementById('toggleDeleteModeBtn');
+    if (bar) bar.style.display = enabled ? 'flex' : 'none';
+    if (btn) btn.classList.toggle('active', enabled);
+    updateDeleteModeBar();
+    renderConversationList();
+}
+
+function toggleDeleteMode() {
+    setDeleteMode(!isDeleteMode);
+}
+
+function toggleConversationSelection(id, checked) {
+    if (!isDeleteMode) return;
+    if (checked) selectedConversationIds.add(id);
+    else selectedConversationIds.delete(id);
+    updateDeleteModeBar();
+}
+
+function updateDeleteModeBar() {
+    const countEl = document.getElementById('deleteModeCount');
+    const confirmBtn = document.getElementById('confirmDeleteBtn');
+    const count = selectedConversationIds.size;
+    if (countEl) countEl.textContent = `${count}개 선택`;
+    if (confirmBtn) confirmBtn.disabled = count === 0;
+}
+
+function confirmDeleteSelected() {
+    if (!isDeleteMode) return;
+    const ids = Array.from(selectedConversationIds);
+    if (ids.length === 0) return;
+
+    if (conversations.length - ids.length < 1) {
+        alert('최소 하나의 대화가 필요합니다.');
+        return;
+    }
+
+    if (!confirm(`선택한 ${ids.length}개의 대화를 삭제하시겠습니까?`)) return;
+
+    conversations = conversations.filter(c => !selectedConversationIds.has(c.id));
+
+    if (!conversations.find(c => c.id === activeConversationId)) {
+        activeConversationId = conversations[0]?.id ?? null;
+    }
+
+    setDeleteMode(false);
+    renderConversationList();
+    renderActiveConversation();
+    saveToStorage();
 }
 
 // ==================== 텍스트 파싱 ====================
