@@ -802,100 +802,69 @@ async function generateShareLink() {
     statusEl.className = 'share-status loading';
     copyBtn.disabled = true;
     
-    let success = false;
+    // LZString 압축으로 URL 생성
+    const jsonStr = JSON.stringify(shareData);
+    const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+    const longUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
     
-    // CORS 프록시를 통한 jsonblob.com 사용
-    if (!success) {
+    // URL이 너무 길면 단축 시도
+    if (longUrl.length > 2000) {
+        let shortened = false;
+        
+        // is.gd URL 단축 시도
         try {
-            // corsproxy.io를 통해 CORS 우회
-            const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://jsonblob.com/api/jsonBlob'), {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(shareData)
-            });
-            
+            const response = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
             if (response.ok) {
-                // 응답 헤더에서 blob ID 추출
-                const location = response.headers.get('Location') || response.headers.get('X-Jsonblob');
-                let blobId = null;
-                
-                if (location) {
-                    blobId = location.split('/').pop();
-                } else {
-                    // 헤더가 없으면 응답 본문에서 시도
-                    const text = await response.text();
-                    // jsonblob URL 패턴 찾기
-                    const match = text.match(/jsonblob\.com\/api\/jsonBlob\/([a-f0-9-]+)/i) ||
-                                  text.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-                    if (match) blobId = match[1];
-                }
-                
-                if (blobId) {
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
-                    linkInput.value = shareUrl;
-                    statusEl.textContent = '✓ 링크가 생성되었습니다!';
+                const result = await response.json();
+                if (result.shorturl) {
+                    linkInput.value = result.shorturl;
+                    statusEl.textContent = '✓ 단축 링크가 생성되었습니다!';
                     statusEl.className = 'share-status success';
                     copyBtn.disabled = false;
-                    success = true;
+                    shortened = true;
                 }
             }
         } catch (e) {
-            console.log('jsonblob (프록시) 실패:', e);
+            console.log('is.gd 단축 실패:', e);
         }
-    }
-    
-    // 2차 시도: 다른 CORS 프록시
-    if (!success) {
-        try {
-            const response = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://jsonblob.com/api/jsonBlob'), {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(shareData)
-            });
-            
-            if (response.ok) {
-                const text = await response.text();
-                const match = text.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-                if (match) {
-                    const blobId = match[1];
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
-                    linkInput.value = shareUrl;
-                    statusEl.textContent = '✓ 링크가 생성되었습니다!';
-                    statusEl.className = 'share-status success';
-                    copyBtn.disabled = false;
-                    success = true;
+        
+        // v.gd 시도
+        if (!shortened) {
+            try {
+                const response = await fetch(`https://v.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.shorturl) {
+                        linkInput.value = result.shorturl;
+                        statusEl.textContent = '✓ 단축 링크가 생성되었습니다!';
+                        statusEl.className = 'share-status success';
+                        copyBtn.disabled = false;
+                        shortened = true;
+                    }
                 }
+            } catch (e) {
+                console.log('v.gd 단축 실패:', e);
             }
-        } catch (e) {
-            console.log('allorigins 실패:', e);
         }
-    }
-    
-    // 최종 폴백: LZString 압축
-    if (!success) {
-        try {
-            const jsonStr = JSON.stringify(shareData);
-            const compressed = LZString.compressToEncodedURIComponent(jsonStr);
-            const shareUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
-            
-            linkInput.value = shareUrl;
-            
-            if (shareUrl.length > 2000) {
-                statusEl.textContent = '⚠️ URL이 깁니다. 일부 브라우저에서 작동하지 않을 수 있습니다.';
-                statusEl.className = 'share-status loading';
-            } else {
-                statusEl.textContent = '✓ 링크가 생성되었습니다! (로컬 방식)';
-                statusEl.className = 'share-status success';
-            }
+        
+        // 단축 실패시 원본 URL 사용
+        if (!shortened) {
+            linkInput.value = longUrl;
+            statusEl.textContent = '⚠️ URL이 깁니다. 아래 서비스에서 단축해주세요.';
+            statusEl.className = 'share-status loading';
             copyBtn.disabled = false;
-        } catch (fallbackError) {
-            statusEl.textContent = '❌ 링크 생성에 실패했습니다.';
-            statusEl.className = 'share-status error';
+            // 단축 서비스 안내 표시
+            document.getElementById('shortenerHelp').style.display = 'block';
+        } else {
+            document.getElementById('shortenerHelp').style.display = 'none';
         }
+    } else {
+        // URL이 적당한 길이면 그대로 사용
+        linkInput.value = longUrl;
+        statusEl.textContent = '✓ 링크가 생성되었습니다!';
+        statusEl.className = 'share-status success';
+        copyBtn.disabled = false;
+        document.getElementById('shortenerHelp').style.display = 'none';
     }
 }
 
@@ -918,40 +887,15 @@ function copyShareLink() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // jsonblob ID
-    const blobId = urlParams.get('id');
-    // 압축 데이터 (기존 방식)
+    // 압축 데이터 (현재 방식)
     const compressedData = urlParams.get('d');
+    // 레거시 데이터 (하위 호환성)
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
-    // jsonblob에서 불러오기 (CORS 프록시 사용)
-    if (blobId) {
-        // 먼저 직접 시도
-        try {
-            const response = await fetch(`https://jsonblob.com/api/jsonBlob/${blobId}`);
-            if (response.ok) {
-                decoded = await response.json();
-            }
-        } catch (e) {
-            console.log('jsonblob 직접 로드 실패, 프록시 시도:', e);
-        }
-        
-        // 실패시 CORS 프록시로 시도
-        if (!decoded) {
-            try {
-                const response = await fetch('https://corsproxy.io/?' + encodeURIComponent(`https://jsonblob.com/api/jsonBlob/${blobId}`));
-                if (response.ok) {
-                    decoded = await response.json();
-                }
-            } catch (e) {
-                console.error('jsonblob 프록시 로드 실패:', e);
-            }
-        }
-    }
     // 압축 데이터
-    else if (compressedData) {
+    if (compressedData) {
         try {
             const decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
             decoded = JSON.parse(decompressed);

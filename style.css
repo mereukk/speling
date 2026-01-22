@@ -892,6 +892,20 @@ body {
     display: none;
 }
 
+.shortener-help {
+    margin-top: 15px;
+    padding: 15px;
+    background: #fff3cd;
+    border-radius: 8px;
+    border: 1px solid #ffc107;
+}
+
+.shortener-help p {
+    margin: 0 0 10px 0;
+    font-size: 0.85rem;
+    color: #856404;
+}
+
 /* 빈 상태 메시지 */
 .empty-message {
     text-align: center;
