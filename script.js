@@ -802,51 +802,24 @@ async function generateShareLink() {
     statusEl.className = 'share-status loading';
     copyBtn.disabled = true;
     
-    // 여러 클라우드 서비스 시도
     let success = false;
     
-    // 1차 시도: npoint.io
+    // 1차 시도: extendsclass.com (CORS 지원 확인됨)
     if (!success) {
         try {
-            const response = await fetch('https://api.npoint.io/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(shareData)
-            });
-            
-            if (response.ok) {
-                const result = await response.json();
-                // npoint.io는 생성된 bin의 ID를 반환
-                if (result && result.id) {
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?np=${result.id}`;
-                    linkInput.value = shareUrl;
-                    statusEl.textContent = '✓ 링크가 생성되었습니다!';
-                    statusEl.className = 'share-status success';
-                    copyBtn.disabled = false;
-                    success = true;
-                }
-            }
-        } catch (e) {
-            console.log('npoint.io 실패:', e);
-        }
-    }
-    
-    // 2차 시도: jsonbin.io (무료 API)
-    if (!success) {
-        try {
-            const response = await fetch('https://api.jsonbin.io/v3/b', {
+            const response = await fetch('https://json.extendsclass.com/bin', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'X-Bin-Private': 'false'
+                    'Security-key': 'rpformatter'
                 },
                 body: JSON.stringify(shareData)
             });
             
             if (response.ok) {
                 const result = await response.json();
-                if (result && result.metadata && result.metadata.id) {
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?jb=${result.metadata.id}`;
+                if (result && result.id) {
+                    const shareUrl = `${window.location.origin}${window.location.pathname}?ec=${result.id}`;
                     linkInput.value = shareUrl;
                     statusEl.textContent = '✓ 링크가 생성되었습니다!';
                     statusEl.className = 'share-status success';
@@ -855,24 +828,28 @@ async function generateShareLink() {
                 }
             }
         } catch (e) {
-            console.log('jsonbin.io 실패:', e);
+            console.log('extendsclass 실패:', e);
         }
     }
     
-    // 3차 시도: JSONkeeper.com
+    // 2차 시도: jsonblob.com
     if (!success) {
         try {
-            const response = await fetch('https://jsonkeeper.com/b', {
+            const response = await fetch('https://jsonblob.com/api/jsonBlob', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify(shareData)
             });
             
             if (response.ok) {
-                const result = await response.json();
-                if (result && result.link) {
-                    const jsonId = result.link.split('/b/')[1];
-                    const shareUrl = `${window.location.origin}${window.location.pathname}?jk=${jsonId}`;
+                // jsonblob은 Location 헤더에 URL 반환
+                const location = response.headers.get('Location') || response.headers.get('X-Jsonblob');
+                if (location) {
+                    const blobId = location.split('/').pop();
+                    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
                     linkInput.value = shareUrl;
                     statusEl.textContent = '✓ 링크가 생성되었습니다!';
                     statusEl.className = 'share-status success';
@@ -881,7 +858,7 @@ async function generateShareLink() {
                 }
             }
         } catch (e) {
-            console.log('jsonkeeper.com 실패:', e);
+            console.log('jsonblob 실패:', e);
         }
     }
     
@@ -928,56 +905,30 @@ function copyShareLink() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // npoint.io ID (새 방식)
-    const npointId = urlParams.get('np');
-    // jsonbin.io ID
-    const jsonbinId = urlParams.get('jb');
-    // JSONkeeper ID
-    const jsonkeeperId = urlParams.get('jk');
-    // jsonblob ID (이전 방식 - 하위 호환성)
+    // extendsclass ID (새 방식)
+    const extendsclassId = urlParams.get('ec');
+    // jsonblob ID
     const blobId = urlParams.get('id');
+    // JSONkeeper ID (하위 호환성)
+    const jsonkeeperId = urlParams.get('jk');
     // 압축 데이터 (기존 방식)
     const compressedData = urlParams.get('d');
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
-    // npoint.io에서 불러오기
-    if (npointId) {
+    // extendsclass에서 불러오기
+    if (extendsclassId) {
         try {
-            const response = await fetch(`https://api.npoint.io/${npointId}`);
+            const response = await fetch(`https://json.extendsclass.com/bin/${extendsclassId}`);
             if (response.ok) {
                 decoded = await response.json();
             }
         } catch (e) {
-            console.error('npoint.io 데이터 로드 실패:', e);
+            console.error('extendsclass 데이터 로드 실패:', e);
         }
     }
-    // jsonbin.io에서 불러오기
-    else if (jsonbinId) {
-        try {
-            const response = await fetch(`https://api.jsonbin.io/v3/b/${jsonbinId}/latest`, {
-                headers: { 'X-Bin-Meta': 'false' }
-            });
-            if (response.ok) {
-                decoded = await response.json();
-            }
-        } catch (e) {
-            console.error('jsonbin.io 데이터 로드 실패:', e);
-        }
-    }
-    // JSONkeeper에서 불러오기
-    else if (jsonkeeperId) {
-        try {
-            const response = await fetch(`https://jsonkeeper.com/b/${jsonkeeperId}`);
-            if (response.ok) {
-                decoded = await response.json();
-            }
-        } catch (e) {
-            console.error('JSONkeeper 데이터 로드 실패:', e);
-        }
-    }
-    // jsonblob에서 불러오기 (하위 호환성)
+    // jsonblob에서 불러오기
     else if (blobId) {
         try {
             const response = await fetch(`https://jsonblob.com/api/jsonBlob/${blobId}`);
@@ -986,6 +937,17 @@ async function loadFromURL() {
             }
         } catch (e) {
             console.error('jsonblob 데이터 로드 실패:', e);
+        }
+    }
+    // JSONkeeper에서 불러오기 (하위 호환성)
+    else if (jsonkeeperId) {
+        try {
+            const response = await fetch(`https://jsonkeeper.com/b/${jsonkeeperId}`);
+            if (response.ok) {
+                decoded = await response.json();
+            }
+        } catch (e) {
+            console.error('JSONkeeper 데이터 로드 실패:', e);
         }
     }
     // 압축 데이터
