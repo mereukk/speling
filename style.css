@@ -859,6 +859,39 @@ body {
     color: #888;
 }
 
+.share-desc {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.share-status {
+    font-size: 0.9rem;
+    margin: 10px 0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.share-status.loading {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.share-status.success {
+    background: #d4edda;
+    color: #155724;
+}
+
+.share-status.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.share-status:empty {
+    display: none;
+}
+
 /* 빈 상태 메시지 */
 .empty-message {
     text-align: center;

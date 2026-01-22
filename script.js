@@ -20,12 +20,12 @@ const editCharModal = document.getElementById('editCharModal');
 const characterList = document.getElementById('characterList');
 
 // ==================== 초기화 ====================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // localStorage에서 데이터 불러오기
     loadFromStorage();
     
-    // URL에서 공유 데이터 불러오기
-    loadFromURL();
+    // URL에서 공유 데이터 불러오기 (클라우드 로드는 비동기)
+    await loadFromURL();
     
     // 대화가 없으면 기본 대화 생성
     if (conversations.length === 0) {
@@ -768,30 +768,91 @@ function handleFileUpload(e) {
 }
 
 // ==================== 공유 기능 ====================
+let currentBlobId = null; // 현재 로드된 blob ID
+
 function openShareModal() {
-    const conv = getActiveConversation();
-    if (!conv) return;
-    
-    const shareData = {
-        conversation: conv,
-        characters: characters
-    };
-    
-    // LZString으로 압축 후 URL-safe Base64 인코딩
-    const jsonStr = JSON.stringify(shareData);
-    const compressed = LZString.compressToEncodedURIComponent(jsonStr);
-    const shareUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
-    
-    document.getElementById('shareLink').value = shareUrl;
     shareModal.classList.add('active');
+    document.getElementById('shareLink').value = '';
+    document.getElementById('shareStatus').textContent = '';
+    document.getElementById('copyLinkBtn').disabled = true;
 }
 
 function closeShareModal() {
     shareModal.classList.remove('active');
 }
 
+// 클라우드에 저장하고 공유 링크 생성
+async function generateShareLink() {
+    const conv = getActiveConversation();
+    if (!conv) {
+        alert('공유할 대화가 없습니다.');
+        return;
+    }
+    
+    const shareData = {
+        conversation: conv,
+        characters: characters,
+        appTitle: appTitle,
+        createdAt: new Date().toISOString()
+    };
+    
+    const statusEl = document.getElementById('shareStatus');
+    const linkInput = document.getElementById('shareLink');
+    const copyBtn = document.getElementById('copyLinkBtn');
+    
+    statusEl.textContent = '링크 생성 중...';
+    statusEl.className = 'share-status loading';
+    copyBtn.disabled = true;
+    
+    try {
+        let blobId;
+        
+        // 기존 blob이 있으면 업데이트, 없으면 새로 생성
+        if (currentBlobId) {
+            // 기존 blob 업데이트
+            const response = await fetch(`https://jsonblob.com/api/jsonBlob/${currentBlobId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(shareData)
+            });
+            if (response.ok) {
+                blobId = currentBlobId;
+            } else {
+                throw new Error('업데이트 실패');
+            }
+        } else {
+            // 새 blob 생성
+            const response = await fetch('https://jsonblob.com/api/jsonBlob', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(shareData)
+            });
+            
+            if (!response.ok) throw new Error('저장 실패');
+            
+            // Location 헤더에서 blob ID 추출
+            const location = response.headers.get('Location');
+            blobId = location.split('/').pop();
+            currentBlobId = blobId;
+        }
+        
+        const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
+        linkInput.value = shareUrl;
+        statusEl.textContent = '✓ 링크가 생성되었습니다!';
+        statusEl.className = 'share-status success';
+        copyBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('공유 링크 생성 실패:', error);
+        statusEl.textContent = '❌ 링크 생성에 실패했습니다. 다시 시도해주세요.';
+        statusEl.className = 'share-status error';
+    }
+}
+
 function copyShareLink() {
     const linkInput = document.getElementById('shareLink');
+    if (!linkInput.value) return;
+    
     linkInput.select();
     document.execCommand('copy');
     
@@ -803,27 +864,42 @@ function copyShareLink() {
     }, 2000);
 }
 
-function loadFromURL() {
+// URL에서 데이터 로드
+async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 새 압축 형식 (d 파라미터)
+    // 클라우드 ID (새 방식)
+    const blobId = urlParams.get('id');
+    // 압축 데이터 (기존 방식 - 하위 호환성)
     const compressedData = urlParams.get('d');
-    // 기존 형식 (data 파라미터) - 하위 호환성
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
-    if (compressedData) {
+    // 클라우드에서 불러오기
+    if (blobId) {
         try {
-            // LZString으로 압축 해제
+            const response = await fetch(`https://jsonblob.com/api/jsonBlob/${blobId}`);
+            if (response.ok) {
+                decoded = await response.json();
+                currentBlobId = blobId; // 현재 blob ID 저장 (수정 시 사용)
+            }
+        } catch (e) {
+            console.error('클라우드 데이터 로드 실패:', e);
+        }
+    }
+    // 압축 데이터 (기존 방식)
+    else if (compressedData) {
+        try {
             const decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
             decoded = JSON.parse(decompressed);
         } catch (e) {
             console.error('압축 데이터 로드 실패:', e);
         }
-    } else if (legacyData) {
+    }
+    // 레거시 데이터
+    else if (legacyData) {
         try {
-            // 기존 Base64 형식
             decoded = JSON.parse(decodeURIComponent(atob(legacyData)));
         } catch (e) {
             console.error('공유 데이터 로드 실패:', e);
@@ -832,7 +908,6 @@ function loadFromURL() {
     
     if (decoded) {
         if (decoded.conversation) {
-            // 기존 대화 목록에 추가하거나 대체
             const existingIndex = conversations.findIndex(c => c.id === decoded.conversation.id);
             if (existingIndex >= 0) {
                 conversations[existingIndex] = decoded.conversation;
@@ -845,6 +920,15 @@ function loadFromURL() {
         if (decoded.characters) {
             characters = { ...characters, ...decoded.characters };
         }
+        
+        if (decoded.appTitle) {
+            appTitle = decoded.appTitle;
+            document.getElementById('appTitle').textContent = appTitle;
+            document.title = appTitle;
+        }
+        
+        // URL 정리 (파라미터 제거)
+        window.history.replaceState({}, document.title, window.location.pathname);
     }
 }
 
