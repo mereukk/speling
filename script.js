@@ -19,6 +19,8 @@ let conversations = []; // [{ id, title, text, dialogues }]
 let activeConversationId = null;
 let colorIndex = 0;
 let appTitle = 'RP 포맷터';
+let currentRoomId = null; // 사이트 전체(대화목록) 공유용
+let isApplyingRemote = false; // 원격 변경 적용 중이면 재업로드 방지
 
 // 기본 색상 팔레트 (새 캐릭터용)
 const defaultColors = ['#5865F2', '#EB459E', '#3BA55C', '#FAA61A', '#ED4245', '#9B59B6'];
@@ -809,40 +811,39 @@ function openShareModal() {
     const statusEl = document.getElementById('shareStatus');
     const copyBtn = document.getElementById('copyLinkBtn');
 
-    const conv = getActiveConversation();
-    if (conv && conv.shareId) {
-        // 기존 공유 링크를 그대로 보여줌 (링크 유지)
-        linkInput.value = `${window.location.origin}${window.location.pathname}?share=${conv.shareId}`;
-        statusEl.textContent = '✓ 기존 공유 링크입니다. 이 링크로 실시간 반영됩니다.';
+    if (currentRoomId) {
+        linkInput.value = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
+        statusEl.textContent = '✓ 사이트(대화 목록 전체) 공유 링크입니다. 이 링크로 실시간 반영됩니다.';
         statusEl.className = 'share-status success';
         copyBtn.disabled = false;
-    } else {
-        linkInput.value = '';
-        statusEl.textContent = '';
-        statusEl.className = 'share-status';
-        copyBtn.disabled = true;
+        return;
     }
+
+    linkInput.value = '';
+    statusEl.textContent = '아직 공유 방이 없습니다. 아래 버튼으로 생성하세요.';
+    statusEl.className = 'share-status';
+    copyBtn.disabled = true;
 }
 
 function closeShareModal() {
     shareModal.classList.remove('active');
 }
 
-// 공유 링크 생성 (Firebase)
+// 공유 링크 생성 (Firebase) - 사이트 전체(대화 목록) 공유
 async function generateShareLink() {
-    const conv = getActiveConversation();
-    if (!conv) {
-        alert('공유할 대화가 없습니다.');
+    const nowIso = new Date().toISOString();
+    const roomId = currentRoomId || database.ref('rooms').push().key;
+    if (!roomId) {
+        alert('공유 링크 생성에 실패했습니다.');
         return;
     }
-    
-    const nowIso = new Date().toISOString();
-    const createdAt = conv.shareCreatedAt || nowIso;
-    const shareData = {
-        conversation: conv,
-        characters: characters,
-        appTitle: appTitle,
-        createdAt,
+
+    const roomData = {
+        appTitle,
+        characters,
+        conversations,
+        activeConversationId,
+        createdAt: nowIso,
         updatedAt: nowIso
     };
     
@@ -857,35 +858,27 @@ async function generateShareLink() {
     if (shortenerHelpEl) shortenerHelpEl.style.display = 'none';
     
     try {
-        // Firebase에 데이터 저장
-        // - 이미 공유 링크가 있으면 같은 shareId를 계속 사용(실시간 반영 유지)
-        // - 없으면 새 shareId 생성
-        const shareId = conv.shareId || database.ref('shares').push().key;
-        if (!shareId) throw new Error('shareId 생성 실패');
-
-        if (conv.shareId) {
-            // 기존 링크면 전체 덮어쓰기 대신 update로 갱신(createdAt 유지)
-            await database.ref(`shares/${shareId}`).update({
-                conversation: conv,
-                characters: characters,
-                appTitle: appTitle,
+        // Firebase에 사이트 전체 상태 저장 (rooms/<roomId>)
+        if (currentRoomId) {
+            await database.ref(`rooms/${roomId}`).update({
+                appTitle,
+                characters,
+                conversations,
+                activeConversationId,
                 updatedAt: nowIso
             });
         } else {
-            // 새 링크면 최초 데이터 저장
-            await database.ref(`shares/${shareId}`).set(shareData);
+            await database.ref(`rooms/${roomId}`).set(roomData);
         }
 
-        const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+        currentRoomId = roomId;
+        localStorage.setItem('rpFormatter_roomId', currentRoomId);
+        const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
         
         linkInput.value = shareUrl;
-        statusEl.textContent = '✓ 공유 링크가 생성되었습니다! (실시간 반영)';
+        statusEl.textContent = '✓ 사이트 공유 링크가 생성되었습니다! (실시간 반영)';
         statusEl.className = 'share-status success';
         copyBtn.disabled = false;
-        
-        // 현재 대화에 공유 ID 저장 (나중에 업데이트용)
-        conv.shareId = shareId;
-        conv.shareCreatedAt = createdAt;
         saveToStorage();
         
     } catch (error) {
@@ -952,8 +945,10 @@ function copyAndOpenTinyURL() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // Firebase 공유 ID (새 방식)
-    const shareId = urlParams.get('share');
+    // 사이트 전체 공유 방 ID (새 방식)
+    const roomId = urlParams.get('room');
+    // (하위 호환) 예전 단일 대화 공유 ID
+    const legacyShareId = urlParams.get('share');
     // 압축 데이터 (이전 방식 - 하위 호환성)
     const compressedData = urlParams.get('d');
     // 레거시 데이터 (하위 호환성)
@@ -961,30 +956,21 @@ async function loadFromURL() {
     
     let decoded = null;
     
-    // Firebase에서 불러오기
-    if (shareId) {
+    // Firebase rooms에서 불러오기 (사이트 전체)
+    if (roomId) {
         try {
-            const snapshot = await database.ref(`shares/${shareId}`).once('value');
+            currentRoomId = roomId;
+            localStorage.setItem('rpFormatter_roomId', currentRoomId);
+
+            const snapshot = await database.ref(`rooms/${roomId}`).once('value');
             if (snapshot.exists()) {
                 decoded = snapshot.val();
                 
-                // 실시간 업데이트 감지 (선택적)
-                database.ref(`shares/${shareId}`).on('value', (snapshot) => {
+                // 실시간 업데이트 감지
+                database.ref(`rooms/${roomId}`).on('value', (snapshot) => {
                     if (snapshot.exists()) {
                         const updatedData = snapshot.val();
-                        // 데이터가 변경되면 자동 반영
-                        if (updatedData.conversation) {
-                            const existingIndex = conversations.findIndex(c => c.id === updatedData.conversation.id);
-                            if (existingIndex >= 0) {
-                                conversations[existingIndex] = updatedData.conversation;
-                            } else {
-                                conversations.push(updatedData.conversation);
-                            }
-                            activeConversationId = updatedData.conversation.id;
-                        }
-                        if (updatedData.characters) {
-                            characters = { ...characters, ...updatedData.characters };
-                        }
+                        applyRoomData(updatedData);
                         renderConversationList();
                         renderActiveConversation();
                     }
@@ -992,6 +978,32 @@ async function loadFromURL() {
             }
         } catch (e) {
             console.error('Firebase 데이터 로드 실패:', e);
+        }
+    }
+    // (하위 호환) 예전 단일 대화 shares/<id>도 시도
+    else if (legacyShareId) {
+        try {
+            const snapshot = await database.ref(`shares/${legacyShareId}`).once('value');
+            if (snapshot.exists()) {
+                decoded = snapshot.val();
+                // 기존 링크는 단일 대화 스냅샷/실시간(legacy) 동작 유지
+                database.ref(`shares/${legacyShareId}`).on('value', (snapshot) => {
+                    if (snapshot.exists()) {
+                        const updatedData = snapshot.val();
+                        if (updatedData.conversation) {
+                            const existingIndex = conversations.findIndex(c => c.id === updatedData.conversation.id);
+                            if (existingIndex >= 0) conversations[existingIndex] = updatedData.conversation;
+                            else conversations.push(updatedData.conversation);
+                            activeConversationId = updatedData.conversation.id;
+                        }
+                        if (updatedData.characters) characters = { ...characters, ...updatedData.characters };
+                        renderConversationList();
+                        renderActiveConversation();
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Firebase(legacy share) 데이터 로드 실패:', e);
         }
     }
     // 압축 데이터
@@ -1013,28 +1025,44 @@ async function loadFromURL() {
     }
     
     if (decoded) {
-        if (decoded.conversation) {
-            const existingIndex = conversations.findIndex(c => c.id === decoded.conversation.id);
-            if (existingIndex >= 0) {
-                conversations[existingIndex] = decoded.conversation;
-            } else {
-                conversations.push(decoded.conversation);
+        // room 데이터면 전체 적용, 아니면 기존 구조(대화 1개) 적용
+        if (decoded.conversations) {
+            applyRoomData(decoded);
+        } else {
+            if (decoded.conversation) {
+                const existingIndex = conversations.findIndex(c => c.id === decoded.conversation.id);
+                if (existingIndex >= 0) conversations[existingIndex] = decoded.conversation;
+                else conversations.push(decoded.conversation);
+                activeConversationId = decoded.conversation.id;
             }
-            activeConversationId = decoded.conversation.id;
-        }
-        
-        if (decoded.characters) {
-            characters = { ...characters, ...decoded.characters };
-        }
-        
-        if (decoded.appTitle) {
-            appTitle = decoded.appTitle;
-            document.getElementById('appTitle').textContent = appTitle;
-            document.title = appTitle;
+            if (decoded.characters) characters = { ...characters, ...decoded.characters };
+            if (decoded.appTitle) {
+                appTitle = decoded.appTitle;
+                document.getElementById('appTitle').textContent = appTitle;
+                document.title = appTitle;
+            }
         }
         
         // URL 정리 (파라미터 제거)
         window.history.replaceState({}, document.title, window.location.pathname);
+    }
+}
+
+function applyRoomData(data) {
+    try {
+        isApplyingRemote = true;
+        if (data.appTitle) {
+            appTitle = data.appTitle;
+            const titleEl = document.getElementById('appTitle');
+            if (titleEl) titleEl.textContent = appTitle;
+            document.title = appTitle;
+        }
+        if (data.characters) characters = data.characters;
+        if (Array.isArray(data.conversations)) conversations = data.conversations;
+        if (data.activeConversationId) activeConversationId = data.activeConversationId;
+        saveToStorage(); // 로컬에도 저장(단, isApplyingRemote로 Firebase 재업로드는 막음)
+    } finally {
+        isApplyingRemote = false;
     }
 }
 
@@ -1046,10 +1074,18 @@ function saveToStorage() {
     localStorage.setItem('rpFormatter_colorIndex', colorIndex.toString());
     localStorage.setItem('rpFormatter_appTitle', appTitle);
     
-    // Firebase 공유 데이터도 업데이트
-    const conv = getActiveConversation();
-    if (conv) {
-        updateFirebaseIfShared(conv);
+    if (currentRoomId) localStorage.setItem('rpFormatter_roomId', currentRoomId);
+
+    // Firebase(rooms)에도 업데이트: 사이트 전체를 공유 중이면 항상 반영
+    if (currentRoomId && !isApplyingRemote) {
+        const nowIso = new Date().toISOString();
+        database.ref(`rooms/${currentRoomId}`).update({
+            appTitle,
+            characters,
+            conversations,
+            activeConversationId,
+            updatedAt: nowIso
+        }).catch((e) => console.error('Firebase rooms 업데이트 실패:', e));
     }
 }
 
@@ -1059,6 +1095,7 @@ function loadFromStorage() {
     const savedCharacters = localStorage.getItem('rpFormatter_characters');
     const savedColorIndex = localStorage.getItem('rpFormatter_colorIndex');
     const savedAppTitle = localStorage.getItem('rpFormatter_appTitle');
+    const savedRoomId = localStorage.getItem('rpFormatter_roomId');
     
     if (savedConversations) {
         try {
@@ -1086,6 +1123,10 @@ function loadFromStorage() {
     
     if (savedAppTitle) {
         appTitle = savedAppTitle;
+    }
+
+    if (savedRoomId) {
+        currentRoomId = savedRoomId;
     }
 }
 
