@@ -768,8 +768,6 @@ function handleFileUpload(e) {
 }
 
 // ==================== 공유 기능 ====================
-let currentBlobId = null; // 현재 로드된 blob ID
-
 function openShareModal() {
     shareModal.classList.add('active');
     document.getElementById('shareLink').value = '';
@@ -805,38 +803,20 @@ async function generateShareLink() {
     copyBtn.disabled = true;
     
     try {
-        let blobId;
+        // JSONkeeper.com API 사용
+        const response = await fetch('https://jsonkeeper.com/b', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(shareData)
+        });
         
-        // 기존 blob이 있으면 업데이트, 없으면 새로 생성
-        if (currentBlobId) {
-            // 기존 blob 업데이트
-            const response = await fetch(`https://jsonblob.com/api/jsonBlob/${currentBlobId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(shareData)
-            });
-            if (response.ok) {
-                blobId = currentBlobId;
-            } else {
-                throw new Error('업데이트 실패');
-            }
-        } else {
-            // 새 blob 생성
-            const response = await fetch('https://jsonblob.com/api/jsonBlob', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(shareData)
-            });
-            
-            if (!response.ok) throw new Error('저장 실패');
-            
-            // Location 헤더에서 blob ID 추출
-            const location = response.headers.get('Location');
-            blobId = location.split('/').pop();
-            currentBlobId = blobId;
-        }
+        if (!response.ok) throw new Error('저장 실패: ' + response.status);
         
-        const shareUrl = `${window.location.origin}${window.location.pathname}?id=${blobId}`;
+        const result = await response.json();
+        // result.link 예: "https://jsonkeeper.com/b/XXXX"
+        const jsonId = result.link.split('/b/')[1];
+        
+        const shareUrl = `${window.location.origin}${window.location.pathname}?jk=${jsonId}`;
         linkInput.value = shareUrl;
         statusEl.textContent = '✓ 링크가 생성되었습니다!';
         statusEl.className = 'share-status success';
@@ -844,8 +824,27 @@ async function generateShareLink() {
         
     } catch (error) {
         console.error('공유 링크 생성 실패:', error);
-        statusEl.textContent = '❌ 링크 생성에 실패했습니다. 다시 시도해주세요.';
-        statusEl.className = 'share-status error';
+        
+        // 폴백: 기존 압축 방식 사용
+        try {
+            const jsonStr = JSON.stringify(shareData);
+            const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+            const shareUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
+            
+            linkInput.value = shareUrl;
+            
+            if (shareUrl.length > 2000) {
+                statusEl.textContent = '⚠️ URL이 깁니다. 일부 브라우저에서 작동하지 않을 수 있습니다.';
+                statusEl.className = 'share-status loading';
+            } else {
+                statusEl.textContent = '✓ 링크가 생성되었습니다! (로컬 방식)';
+                statusEl.className = 'share-status success';
+            }
+            copyBtn.disabled = false;
+        } catch (fallbackError) {
+            statusEl.textContent = '❌ 링크 생성에 실패했습니다.';
+            statusEl.className = 'share-status error';
+        }
     }
 }
 
@@ -868,27 +867,39 @@ function copyShareLink() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 클라우드 ID (새 방식)
+    // JSONkeeper ID (새 방식)
+    const jsonkeeperId = urlParams.get('jk');
+    // jsonblob ID (이전 방식 - 하위 호환성)
     const blobId = urlParams.get('id');
-    // 압축 데이터 (기존 방식 - 하위 호환성)
+    // 압축 데이터 (기존 방식)
     const compressedData = urlParams.get('d');
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
-    // 클라우드에서 불러오기
-    if (blobId) {
+    // JSONkeeper에서 불러오기
+    if (jsonkeeperId) {
+        try {
+            const response = await fetch(`https://jsonkeeper.com/b/${jsonkeeperId}`);
+            if (response.ok) {
+                decoded = await response.json();
+            }
+        } catch (e) {
+            console.error('JSONkeeper 데이터 로드 실패:', e);
+        }
+    }
+    // jsonblob에서 불러오기 (하위 호환성)
+    else if (blobId) {
         try {
             const response = await fetch(`https://jsonblob.com/api/jsonBlob/${blobId}`);
             if (response.ok) {
                 decoded = await response.json();
-                currentBlobId = blobId; // 현재 blob ID 저장 (수정 시 사용)
             }
         } catch (e) {
-            console.error('클라우드 데이터 로드 실패:', e);
+            console.error('jsonblob 데이터 로드 실패:', e);
         }
     }
-    // 압축 데이터 (기존 방식)
+    // 압축 데이터
     else if (compressedData) {
         try {
             const decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
