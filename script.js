@@ -805,9 +805,23 @@ function handleFileUpload(e) {
 // ==================== 공유 기능 ====================
 function openShareModal() {
     shareModal.classList.add('active');
-    document.getElementById('shareLink').value = '';
-    document.getElementById('shareStatus').textContent = '';
-    document.getElementById('copyLinkBtn').disabled = true;
+    const linkInput = document.getElementById('shareLink');
+    const statusEl = document.getElementById('shareStatus');
+    const copyBtn = document.getElementById('copyLinkBtn');
+
+    const conv = getActiveConversation();
+    if (conv && conv.shareId) {
+        // 기존 공유 링크를 그대로 보여줌 (링크 유지)
+        linkInput.value = `${window.location.origin}${window.location.pathname}?share=${conv.shareId}`;
+        statusEl.textContent = '✓ 기존 공유 링크입니다. 이 링크로 실시간 반영됩니다.';
+        statusEl.className = 'share-status success';
+        copyBtn.disabled = false;
+    } else {
+        linkInput.value = '';
+        statusEl.textContent = '';
+        statusEl.className = 'share-status';
+        copyBtn.disabled = true;
+    }
 }
 
 function closeShareModal() {
@@ -822,12 +836,14 @@ async function generateShareLink() {
         return;
     }
     
+    const nowIso = new Date().toISOString();
+    const createdAt = conv.shareCreatedAt || nowIso;
     const shareData = {
         conversation: conv,
         characters: characters,
         appTitle: appTitle,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt,
+        updatedAt: nowIso
     };
     
     const statusEl = document.getElementById('shareStatus');
@@ -842,10 +858,24 @@ async function generateShareLink() {
     
     try {
         // Firebase에 데이터 저장
-        const shareRef = database.ref('shares').push();
-        await shareRef.set(shareData);
-        
-        const shareId = shareRef.key;
+        // - 이미 공유 링크가 있으면 같은 shareId를 계속 사용(실시간 반영 유지)
+        // - 없으면 새 shareId 생성
+        const shareId = conv.shareId || database.ref('shares').push().key;
+        if (!shareId) throw new Error('shareId 생성 실패');
+
+        if (conv.shareId) {
+            // 기존 링크면 전체 덮어쓰기 대신 update로 갱신(createdAt 유지)
+            await database.ref(`shares/${shareId}`).update({
+                conversation: conv,
+                characters: characters,
+                appTitle: appTitle,
+                updatedAt: nowIso
+            });
+        } else {
+            // 새 링크면 최초 데이터 저장
+            await database.ref(`shares/${shareId}`).set(shareData);
+        }
+
         const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
         
         linkInput.value = shareUrl;
@@ -855,6 +885,7 @@ async function generateShareLink() {
         
         // 현재 대화에 공유 ID 저장 (나중에 업데이트용)
         conv.shareId = shareId;
+        conv.shareCreatedAt = createdAt;
         saveToStorage();
         
     } catch (error) {
