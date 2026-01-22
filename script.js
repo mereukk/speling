@@ -1,3 +1,18 @@
+// ==================== Firebase 설정 ====================
+const firebaseConfig = {
+    apiKey: "AIzaSyDC-JC9-hEAz2iJ-5V5Marly9vPUGEP2VI",
+    authDomain: "backup-3d781.firebaseapp.com",
+    databaseURL: "https://backup-3d781-default-rtdb.firebaseio.com",
+    projectId: "backup-3d781",
+    storageBucket: "backup-3d781.firebasestorage.app",
+    messagingSenderId: "987438509455",
+    appId: "1:987438509455:web:e4b2d03d11b5a21f61affa"
+};
+
+// Firebase 초기화
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
 // ==================== 전역 변수 ====================
 let characters = {}; // { name: { image: url, color: colorCode } }
 let conversations = []; // [{ id, title, text, dialogues }]
@@ -602,6 +617,26 @@ function saveDialogue() {
     renderConversationList();
     renderActiveConversation();
     saveToStorage();
+    
+    // Firebase에 공유된 대화면 업데이트
+    updateFirebaseIfShared(conv);
+}
+
+// Firebase 공유 데이터 업데이트
+async function updateFirebaseIfShared(conv) {
+    if (conv.shareId) {
+        try {
+            await database.ref(`shares/${conv.shareId}`).update({
+                conversation: conv,
+                characters: characters,
+                appTitle: appTitle,
+                updatedAt: new Date().toISOString()
+            });
+            console.log('Firebase 업데이트 완료');
+        } catch (error) {
+            console.error('Firebase 업데이트 실패:', error);
+        }
+    }
 }
 
 // ==================== 캐릭터 관리 ====================
@@ -779,7 +814,7 @@ function closeShareModal() {
     shareModal.classList.remove('active');
 }
 
-// 공유 링크 생성
+// 공유 링크 생성 (Firebase)
 async function generateShareLink() {
     const conv = getActiveConversation();
     if (!conv) {
@@ -791,34 +826,40 @@ async function generateShareLink() {
         conversation: conv,
         characters: characters,
         appTitle: appTitle,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
     };
     
     const statusEl = document.getElementById('shareStatus');
     const linkInput = document.getElementById('shareLink');
     const copyBtn = document.getElementById('copyLinkBtn');
     
-    // LZString 압축으로 URL 생성
-    const jsonStr = JSON.stringify(shareData);
-    const compressed = LZString.compressToEncodedURIComponent(jsonStr);
-    const longUrl = `${window.location.origin}${window.location.pathname}?d=${compressed}`;
+    statusEl.textContent = '링크 생성 중...';
+    statusEl.className = 'share-status loading';
+    copyBtn.disabled = true;
+    document.getElementById('shortenerHelp').style.display = 'none';
     
-    linkInput.value = longUrl;
-    copyBtn.disabled = false;
-    
-    // URL 길이에 따라 안내 메시지 변경
-    if (longUrl.length > 8000) {
-        statusEl.textContent = '⚠️ URL이 매우 깁니다. 단축 서비스 이용을 권장합니다.';
-        statusEl.className = 'share-status loading';
-        document.getElementById('shortenerHelp').style.display = 'block';
-    } else if (longUrl.length > 2000) {
-        statusEl.textContent = '⚠️ URL이 깁니다. 일부 앱에서 잘릴 수 있습니다.';
-        statusEl.className = 'share-status loading';
-        document.getElementById('shortenerHelp').style.display = 'block';
-    } else {
-        statusEl.textContent = '✓ 링크가 생성되었습니다!';
+    try {
+        // Firebase에 데이터 저장
+        const shareRef = database.ref('shares').push();
+        await shareRef.set(shareData);
+        
+        const shareId = shareRef.key;
+        const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+        
+        linkInput.value = shareUrl;
+        statusEl.textContent = '✓ 공유 링크가 생성되었습니다! (실시간 반영)';
         statusEl.className = 'share-status success';
-        document.getElementById('shortenerHelp').style.display = 'none';
+        copyBtn.disabled = false;
+        
+        // 현재 대화에 공유 ID 저장 (나중에 업데이트용)
+        conv.shareId = shareId;
+        saveToStorage();
+        
+    } catch (error) {
+        console.error('Firebase 저장 실패:', error);
+        statusEl.textContent = '❌ 링크 생성에 실패했습니다.';
+        statusEl.className = 'share-status error';
     }
 }
 
@@ -879,15 +920,50 @@ function copyAndOpenTinyURL() {
 async function loadFromURL() {
     const urlParams = new URLSearchParams(window.location.search);
     
-    // 압축 데이터 (현재 방식)
+    // Firebase 공유 ID (새 방식)
+    const shareId = urlParams.get('share');
+    // 압축 데이터 (이전 방식 - 하위 호환성)
     const compressedData = urlParams.get('d');
     // 레거시 데이터 (하위 호환성)
     const legacyData = urlParams.get('data');
     
     let decoded = null;
     
+    // Firebase에서 불러오기
+    if (shareId) {
+        try {
+            const snapshot = await database.ref(`shares/${shareId}`).once('value');
+            if (snapshot.exists()) {
+                decoded = snapshot.val();
+                
+                // 실시간 업데이트 감지 (선택적)
+                database.ref(`shares/${shareId}`).on('value', (snapshot) => {
+                    if (snapshot.exists()) {
+                        const updatedData = snapshot.val();
+                        // 데이터가 변경되면 자동 반영
+                        if (updatedData.conversation) {
+                            const existingIndex = conversations.findIndex(c => c.id === updatedData.conversation.id);
+                            if (existingIndex >= 0) {
+                                conversations[existingIndex] = updatedData.conversation;
+                            } else {
+                                conversations.push(updatedData.conversation);
+                            }
+                            activeConversationId = updatedData.conversation.id;
+                        }
+                        if (updatedData.characters) {
+                            characters = { ...characters, ...updatedData.characters };
+                        }
+                        renderConversationList();
+                        renderActiveConversation();
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Firebase 데이터 로드 실패:', e);
+        }
+    }
     // 압축 데이터
-    if (compressedData) {
+    else if (compressedData) {
         try {
             const decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
             decoded = JSON.parse(decompressed);
@@ -937,6 +1013,12 @@ function saveToStorage() {
     localStorage.setItem('rpFormatter_characters', JSON.stringify(characters));
     localStorage.setItem('rpFormatter_colorIndex', colorIndex.toString());
     localStorage.setItem('rpFormatter_appTitle', appTitle);
+    
+    // Firebase 공유 데이터도 업데이트
+    const conv = getActiveConversation();
+    if (conv) {
+        updateFirebaseIfShared(conv);
+    }
 }
 
 function loadFromStorage() {
