@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RP 포맷터</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 왼쪽 사이드바 -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1 id="appTitle" class="app-title" ondblclick="editAppTitle()">RP 포맷터</h1>
+                <button id="toggleSidebar" class="btn-toggle" title="사이드바 접기">◀</button>
+            </div>
+            <div class="sidebar-actions">
+                <button id="manageCharactersBtn" class="btn btn-secondary btn-full">캐릭터 관리</button>
+                <button id="shareBtn" class="btn btn-secondary btn-full">공유 링크</button>
+            </div>
+            <div class="sidebar-content">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <span>대화 목록</span>
+                        <button id="addTabBtn" class="btn-add" title="새 대화 추가">+</button>
+                    </div>
+                    <div class="conversation-list" id="conversationList">
+                        <!-- 대화 목록이 여기에 동적으로 추가됨 -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 사이드바 접힌 상태에서 펼치기 버튼 -->
+        <button id="openSidebar" class="btn-open-sidebar" title="사이드바 열기">▶</button>
+
+        <!-- 메인 컨텐츠 -->
+        <main class="main-container">
+            <div class="main-header">
+                <h2 id="currentConversationTitle" class="conversation-title">새 대화</h2>
+                <button id="writeBtn" class="btn btn-primary">글쓰기</button>
+            </div>
+            <div class="main-content">
+                <!-- 대화 내용 영역 -->
+                <section class="dialogue-section">
+                    <!-- 캐릭터 카드 영역 -->
+                    <div id="characterCards" class="character-cards"></div>
+                    <!-- 대화 목록 영역 -->
+                    <div id="dialogueList" class="dialogue-list"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- 글쓰기 모달 -->
+    <div id="writeModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>글쓰기</h2>
+                <button class="modal-close" id="closeWriteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="dialogueTitle">대화 제목</label>
+                    <input type="text" id="dialogueTitle" placeholder="대화 제목을 입력하세요">
+                </div>
+                <div class="form-group">
+                    <label for="inputText">내용</label>
+                    <textarea 
+                        id="inputText" 
+                        placeholder="네이버 카페에서 복사한 텍스트를 여기에 붙여넣으세요..."
+                    ></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button id="saveDialogueBtn" class="btn btn-primary">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 캐릭터 관리 모달 -->
+    <div id="characterModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>캐릭터 관리</h2>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="characterList" class="character-list"></div>
+                <div class="add-character">
+                    <h3>새 캐릭터 추가</h3>
+                    <div class="form-group">
+                        <label for="newCharName">캐릭터 이름</label>
+                        <input type="text" id="newCharName" placeholder="이름 입력">
+                    </div>
+                    <div class="form-group">
+                        <label for="newCharColor">색상</label>
+                        <div class="color-input-group">
+                            <input type="color" id="newCharColorPicker" value="#5865F2">
+                            <input type="text" id="newCharColor" placeholder="#5865F2" value="#5865F2">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>이미지 설정</label>
+                        <div class="image-input-tabs">
+                            <button class="tab-btn active" data-tab="url">URL 입력</button>
+                            <button class="tab-btn" data-tab="upload">파일 업로드</button>
+                        </div>
+                        <div class="tab-content active" id="tab-url">
+                            <input type="text" id="newCharImageUrl" placeholder="이미지 URL 입력">
+                        </div>
+                        <div class="tab-content" id="tab-upload">
+                            <input type="file" id="newCharImageFile" accept="image/*">
+                            <div id="uploadPreview" class="upload-preview"></div>
+                        </div>
+                    </div>
+                    <button id="addCharacterBtn" class="btn btn-primary">캐릭터 추가</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 캐릭터 수정 모달 -->
+    <div id="editCharModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>캐릭터 수정</h2>
+                <button class="modal-close" id="closeEditCharModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editCharOriginalName">
+                <div class="form-group">
+                    <label for="editCharName">캐릭터 이름</label>
+                    <input type="text" id="editCharName" placeholder="이름 입력">
+                </div>
+                <div class="form-group">
+                    <label for="editCharColor">색상</label>
+                    <div class="color-input-group">
+                        <input type="color" id="editCharColorPicker" value="#5865F2">
+                        <input type="text" id="editCharColor" placeholder="#5865F2">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="editCharImageUrl">이미지 URL</label>
+                    <input type="text" id="editCharImageUrl" placeholder="이미지 URL 입력">
+                </div>
+                <div class="modal-actions">
+                    <button id="saveEditCharBtn" class="btn btn-primary">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 공유 링크 모달 -->
+    <div id="shareModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>공유 링크</h2>
+                <button class="modal-close" id="closeShareModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>아래 링크를 복사해서 공유하세요:</p>
+                <div class="share-link-container">
+                    <input type="text" id="shareLink" readonly>
+                    <button id="copyLinkBtn" class="btn btn-primary">복사</button>
+                </div>
+                <p class="share-note">이 링크에 접속하면 현재 대화 내용을 볼 수 있습니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
