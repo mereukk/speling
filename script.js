@@ -177,7 +177,9 @@ function createNewConversation(title) {
         id: id,
         title: title || '새 대화',
         text: '',
-        dialogues: []
+        dialogues: [],
+        // 대화별 캐릭터 설정 (탭마다 분리)
+        characters: {}
     };
     conversations.push(newConversation);
     activeConversationId = id;
@@ -186,6 +188,16 @@ function createNewConversation(title) {
 
 function getActiveConversation() {
     return conversations.find(c => c.id === activeConversationId);
+}
+
+function getConversationCharacters(conv) {
+    if (!conv) return characters; // 하위 호환(전역 캐릭터)
+    if (!conv.characters) conv.characters = {};
+    return conv.characters;
+}
+
+function getActiveCharacters() {
+    return getConversationCharacters(getActiveConversation());
 }
 
 function switchConversation(id) {
@@ -241,11 +253,12 @@ function renderConversationList() {
 }
 
 // ==================== 텍스트 파싱 ====================
-function parseNaverCafeText(text) {
+function parseNaverCafeText(text, characterMap = null) {
     if (!text.trim()) return [];
     
     const results = [];
     const foundNames = []; // 발견된 모든 캐릭터 이름 (원본 형태: "에르빈 1", "노바 1" 등)
+    const charMap = characterMap || getActiveCharacters();
     
     // "프로필" 키워드로 블록 분리
     const blocks = text.split(/프로필/);
@@ -321,8 +334,8 @@ function parseNaverCafeText(text) {
             });
             
             // 새 캐릭터면 등록 (기본 색상으로)
-            if (!characters[name]) {
-                characters[name] = {
+            if (!charMap[name]) {
+                charMap[name] = {
                     image: '',
                     color: defaultColors[colorIndex++ % defaultColors.length]
                 };
@@ -374,8 +387,9 @@ function isDateLine(line) {
 }
 
 // ==================== 캐릭터 색상 가져오기 ====================
-function getCharacterColor(name) {
-    const char = characters[name];
+function getCharacterColor(name, characterMap = null) {
+    const charMap = characterMap || getActiveCharacters();
+    const char = charMap[name];
     if (char && char.color) {
         return char.color;
     }
@@ -402,6 +416,7 @@ function renderActiveConversation() {
 }
 
 function renderCharacterCards(dialogues) {
+    const charMap = getActiveCharacters();
     // 현재 대화에 등장하는 캐릭터만 표시 (이미지/접는글 항목 제외)
     const activeCharacters = [...new Set(dialogues.filter(d => !d.type && d.name).map(d => d.name))];
     
@@ -413,8 +428,8 @@ function renderCharacterCards(dialogues) {
     
     characterCards.style.display = 'flex';
     characterCards.innerHTML = activeCharacters.map(name => {
-        const char = characters[name] || { image: '' };
-        const color = getCharacterColor(name);
+        const char = charMap[name] || { image: '' };
+        const color = getCharacterColor(name, charMap);
         
         return `
             <div class="character-card">
@@ -430,6 +445,7 @@ function renderCharacterCards(dialogues) {
 }
 
 function renderDialogues(dialogues) {
+    const charMap = getActiveCharacters();
     if (dialogues.length === 0) {
         dialogueList.innerHTML = '<div class="empty-message">글쓰기 버튼을 눌러 대화를 추가하세요</div>';
         return;
@@ -459,8 +475,8 @@ function renderDialogues(dialogues) {
             `;
         }
         
-        const char = characters[dialogue.name] || { image: '' };
-        const color = getCharacterColor(dialogue.name);
+        const char = charMap[dialogue.name] || { image: '' };
+        const color = getCharacterColor(dialogue.name, charMap);
         
         // 텍스트 내 [img:URL] 패턴을 이미지로 변환
         const processedText = processTextWithImages(escapeHtml(dialogue.text));
@@ -613,7 +629,7 @@ function saveDialogue() {
     
     conv.title = title || '새 대화';
     conv.text = text;
-    conv.dialogues = parseNaverCafeText(text);
+    conv.dialogues = parseNaverCafeText(text, getConversationCharacters(conv));
     
     closeWriteModal();
     renderConversationList();
@@ -630,7 +646,7 @@ async function updateFirebaseIfShared(conv) {
         try {
             await database.ref(`shares/${conv.shareId}`).update({
                 conversation: conv,
-                characters: characters,
+                characters: getConversationCharacters(conv),
                 appTitle: appTitle,
                 updatedAt: new Date().toISOString()
             });
@@ -652,7 +668,8 @@ function closeCharacterModal() {
 }
 
 function renderCharacterList() {
-    const charNames = Object.keys(characters);
+    const charMap = getActiveCharacters();
+    const charNames = Object.keys(charMap);
     
     if (charNames.length === 0) {
         characterList.innerHTML = '<div class="empty-message">등록된 캐릭터가 없습니다</div>';
@@ -660,8 +677,8 @@ function renderCharacterList() {
     }
     
     characterList.innerHTML = charNames.map(name => {
-        const char = characters[name];
-        const color = getCharacterColor(name);
+        const char = charMap[name];
+        const color = getCharacterColor(name, charMap);
         
         return `
             <div class="character-list-item">
@@ -683,6 +700,7 @@ function renderCharacterList() {
 }
 
 function addCharacter() {
+    const charMap = getActiveCharacters();
     const name = document.getElementById('newCharName').value.trim();
     const color = document.getElementById('newCharColor').value.trim() || '#5865F2';
     let image = '';
@@ -703,7 +721,7 @@ function addCharacter() {
         return;
     }
     
-    characters[name] = {
+    charMap[name] = {
         image: image,
         color: color
     };
@@ -725,14 +743,15 @@ function addCharacter() {
 
 // ==================== 캐릭터 수정 모달 ====================
 function openEditCharModal(name) {
-    const char = characters[name];
+    const charMap = getActiveCharacters();
+    const char = charMap[name];
     if (!char) return;
     
     document.getElementById('editCharOriginalName').value = name;
     document.getElementById('editCharName').value = name;
     document.getElementById('editCharImageUrl').value = char.image || '';
     
-    const color = getCharacterColor(name);
+    const color = getCharacterColor(name, charMap);
     document.getElementById('editCharColor').value = color;
     document.getElementById('editCharColorPicker').value = color;
     
@@ -744,6 +763,9 @@ function closeEditCharModal() {
 }
 
 function saveEditCharacter() {
+    const conv = getActiveConversation();
+    if (!conv) return;
+    const charMap = getConversationCharacters(conv);
     const originalName = document.getElementById('editCharOriginalName').value;
     const newName = document.getElementById('editCharName').value.trim();
     const newImage = document.getElementById('editCharImageUrl').value.trim();
@@ -757,25 +779,24 @@ function saveEditCharacter() {
     // 이름이 변경된 경우
     if (originalName !== newName) {
         // 새 이름으로 데이터 복사
-        characters[newName] = {
+        charMap[newName] = {
             image: newImage,
             color: newColor
         };
         // 기존 이름 삭제
-        delete characters[originalName];
+        delete charMap[originalName];
         
-        // 대화에서 이름 변경
-        conversations.forEach(conv => {
-            conv.dialogues.forEach(dialogue => {
-                if (dialogue.name === originalName) {
-                    dialogue.name = newName;
-                }
-            });
+        // 현재 대화에서만 이름 변경 (탭별 캐릭터 관리)
+        conv.dialogues.forEach(dialogue => {
+            if (dialogue.name === originalName) {
+                dialogue.name = newName;
+            }
         });
     } else {
         // 이름이 같으면 속성만 업데이트
-        characters[originalName].image = newImage;
-        characters[originalName].color = newColor;
+        if (!charMap[originalName]) charMap[originalName] = { image: '', color: defaultColors[0] };
+        charMap[originalName].image = newImage;
+        charMap[originalName].color = newColor;
     }
     
     closeEditCharModal();
@@ -785,8 +806,9 @@ function saveEditCharacter() {
 }
 
 function deleteCharacter(name) {
+    const charMap = getActiveCharacters();
     if (confirm(`"${name}" 캐릭터를 삭제하시겠습니까?`)) {
-        delete characters[name];
+        delete charMap[name];
         saveToStorage();
         renderCharacterList();
         renderActiveConversation();
@@ -1057,8 +1079,15 @@ function applyRoomData(data) {
             if (titleEl) titleEl.textContent = appTitle;
             document.title = appTitle;
         }
-        if (data.characters) characters = data.characters;
+        // room 데이터는 conversations 안에 characters가 들어가는 구조가 기본
+        // (하위 호환) data.characters(전역)가 있는 경우, 각 대화에 characters가 없으면 채워 넣음
+        const legacyChars = (data.characters && typeof data.characters === 'object') ? data.characters : null;
         if (Array.isArray(data.conversations)) conversations = data.conversations;
+        if (legacyChars && Array.isArray(conversations)) {
+            conversations.forEach(conv => {
+                if (!conv.characters) conv.characters = JSON.parse(JSON.stringify(legacyChars));
+            });
+        }
         if (data.activeConversationId) activeConversationId = data.activeConversationId;
         saveToStorage(); // 로컬에도 저장(단, isApplyingRemote로 Firebase 재업로드는 막음)
     } finally {
@@ -1127,6 +1156,17 @@ function loadFromStorage() {
 
     if (savedRoomId) {
         currentRoomId = savedRoomId;
+    }
+
+    // 마이그레이션: 예전 전역 characters → 대화별 characters
+    // 기존 데이터는 각 대화에 복사해 넣되, 이미 대화별 설정이 있으면 유지
+    if (conversations && conversations.length > 0) {
+        const hasLegacy = characters && Object.keys(characters).length > 0;
+        conversations.forEach(conv => {
+            if (!conv.characters) {
+                conv.characters = hasLegacy ? JSON.parse(JSON.stringify(characters)) : {};
+            }
+        });
     }
 }
 
