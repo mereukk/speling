@@ -23,6 +23,8 @@ let currentRoomId = null; // 사이트 전체(대화목록) 공유용
 let isApplyingRemote = false; // 원격 변경 적용 중이면 재업로드 방지
 let isDeleteMode = false;
 let selectedConversationIds = new Set();
+let isReorderMode = false;
+let selectedForReorder = []; // 최대 2개까지 선택
 
 // 기본 색상 팔레트 (새 캐릭터용)
 const defaultColors = ['#5865F2', '#EB459E', '#3BA55C', '#FAA61A', '#ED4245', '#9B59B6'];
@@ -101,6 +103,10 @@ function setupEventListeners() {
     document.getElementById('toggleDeleteModeBtn').addEventListener('click', toggleDeleteMode);
     document.getElementById('cancelDeleteBtn').addEventListener('click', () => setDeleteMode(false));
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDeleteSelected);
+    
+    // 순서 변경 모드
+    document.getElementById('toggleReorderModeBtn').addEventListener('click', toggleReorderMode);
+    document.getElementById('cancelReorderBtn').addEventListener('click', () => setReorderMode(false));
     
     // 캐릭터 추가
     document.getElementById('addCharacterBtn').addEventListener('click', addCharacter);
@@ -209,6 +215,7 @@ function getActiveCharacters() {
 
 function switchConversation(id) {
     if (isDeleteMode) return; // 삭제 모드에서는 탭 전환 방지
+    if (isReorderMode) return; // 순서 변경 모드에서는 탭 전환 방지
     activeConversationId = id;
     renderConversationList();
     renderActiveConversation();
@@ -237,6 +244,7 @@ function deleteConversation(id) {
 
 function renameConversation(id) {
     if (isDeleteMode) return;
+    if (isReorderMode) return;
     const conv = conversations.find(c => c.id === id);
     if (!conv) return;
     
@@ -250,7 +258,8 @@ function renameConversation(id) {
 }
 
 function renderConversationList() {
-    if (!isDeleteMode) {
+    // 기본 모드
+    if (!isDeleteMode && !isReorderMode) {
         conversationList.innerHTML = conversations.map(conv => `
             <div class="conversation-item ${conv.id === activeConversationId ? 'active' : ''}" 
                  data-id="${conv.id}"
@@ -259,6 +268,23 @@ function renderConversationList() {
                 <span class="title">${escapeHtml(conv.title)}</span>
             </div>
         `).join('');
+        return;
+    }
+
+    // 순서 변경 모드: 클릭으로 2개 선택
+    if (isReorderMode) {
+        conversationList.innerHTML = conversations.map(conv => {
+            const selIndex = selectedForReorder.indexOf(conv.id);
+            const isSelected = selIndex !== -1;
+            return `
+                <div class="conversation-item reorder-mode ${isSelected ? 'reorder-selected' : ''} ${conv.id === activeConversationId ? 'active' : ''}" 
+                     data-id="${conv.id}"
+                     onclick="toggleReorderSelection('${conv.id}')">
+                    ${isSelected ? `<span class="reorder-number">${selIndex + 1}</span>` : ''}
+                    <span class="title">${escapeHtml(conv.title)}</span>
+                </div>
+            `;
+        }).join('');
         return;
     }
 
@@ -277,6 +303,9 @@ function renderConversationList() {
 }
 
 function setDeleteMode(enabled) {
+    // 순서 변경 모드가 켜져 있으면 먼저 끄기
+    if (enabled && isReorderMode) setReorderMode(false);
+    
     isDeleteMode = enabled;
     selectedConversationIds = new Set();
 
@@ -290,6 +319,74 @@ function setDeleteMode(enabled) {
 
 function toggleDeleteMode() {
     setDeleteMode(!isDeleteMode);
+}
+
+// ==================== 순서 변경 모드 ====================
+function setReorderMode(enabled) {
+    // 삭제 모드가 켜져 있으면 먼저 끄기
+    if (enabled && isDeleteMode) setDeleteMode(false);
+    
+    isReorderMode = enabled;
+    selectedForReorder = [];
+
+    const bar = document.getElementById('reorderModeBar');
+    const btn = document.getElementById('toggleReorderModeBtn');
+    if (bar) bar.style.display = enabled ? 'flex' : 'none';
+    if (btn) btn.classList.toggle('reorder-active', enabled);
+    updateReorderModeBar();
+    renderConversationList();
+}
+
+function toggleReorderMode() {
+    setReorderMode(!isReorderMode);
+}
+
+function toggleReorderSelection(id) {
+    if (!isReorderMode) return;
+    
+    const index = selectedForReorder.indexOf(id);
+    if (index !== -1) {
+        // 이미 선택된 항목이면 해제
+        selectedForReorder.splice(index, 1);
+    } else {
+        // 새로 선택
+        if (selectedForReorder.length < 2) {
+            selectedForReorder.push(id);
+        }
+    }
+    
+    updateReorderModeBar();
+    renderConversationList();
+    
+    // 2개 선택되면 자동으로 교체 실행
+    if (selectedForReorder.length === 2) {
+        swapConversations();
+    }
+}
+
+function updateReorderModeBar() {
+    const countEl = document.getElementById('reorderModeCount');
+    const count = selectedForReorder.length;
+    if (countEl) countEl.textContent = `${count}개 선택 (2개 선택 시 교체)`;
+}
+
+function swapConversations() {
+    if (selectedForReorder.length !== 2) return;
+    
+    const [id1, id2] = selectedForReorder;
+    const index1 = conversations.findIndex(c => c.id === id1);
+    const index2 = conversations.findIndex(c => c.id === id2);
+    
+    if (index1 === -1 || index2 === -1) return;
+    
+    // 위치 교체
+    [conversations[index1], conversations[index2]] = [conversations[index2], conversations[index1]];
+    
+    // 선택 초기화하고 모드 유지 (연속 교체 가능)
+    selectedForReorder = [];
+    updateReorderModeBar();
+    renderConversationList();
+    saveToStorage();
 }
 
 function toggleConversationSelection(id, checked) {

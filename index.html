@@ -27,9 +27,14 @@
                     <div class="section-header">
                         <span>대화 목록</span>
                         <div class="section-actions">
+                            <button id="toggleReorderModeBtn" class="btn-icon" title="순서 변경">🔀</button>
                             <button id="toggleDeleteModeBtn" class="btn-icon" title="선택 삭제">🗑️</button>
                             <button id="addTabBtn" class="btn-add" title="새 대화 추가">+</button>
                         </div>
+                    </div>
+                    <div id="reorderModeBar" class="reorder-mode-bar" style="display:none;">
+                        <span id="reorderModeCount">0개 선택 (2개 선택 시 교체)</span>
+                        <button id="cancelReorderBtn" class="btn btn-secondary btn-small">취소</button>
                     </div>
                     <div id="deleteModeBar" class="delete-mode-bar" style="display:none;">
                         <span id="deleteModeCount">0개 선택</span>
