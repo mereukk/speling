@@ -1138,6 +1138,10 @@ body {
     display: flex;
     flex-direction: column;
     transition: margin-left 0.3s ease;
+    position: sticky;
+    top: 52px;
+    height: calc(100vh - 52px);
+    overflow-y: auto;
 }
 
 .roll20-sidebar.collapsed {
