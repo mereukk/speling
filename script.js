@@ -1558,11 +1558,14 @@ function selectRoll20Log(logId) {
 
 // Roll20 현재 로그 참조
 let roll20CurrentLogRef = null;
-let roll20IsLoading = false;
+let roll20CurrentLogId = null;
 
 // Roll20 로그 콘텐츠 로드
 function loadRoll20LogContent(logId) {
-    if (!roll20RoomId || !logId || roll20IsLoading) return;
+    if (!roll20RoomId || !logId) return;
+    
+    // 같은 로그면 스킵
+    if (roll20CurrentLogId === logId && roll20CurrentLogRef) return;
     
     // 기존 구독 해제
     if (roll20CurrentLogRef) {
@@ -1570,7 +1573,7 @@ function loadRoll20LogContent(logId) {
         roll20CurrentLogRef = null;
     }
     
-    roll20IsLoading = true;
+    roll20CurrentLogId = logId;
     roll20CurrentLogRef = database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`);
     
     roll20CurrentLogRef.on('value', (snapshot) => {
@@ -1593,8 +1596,6 @@ function loadRoll20LogContent(logId) {
                 '<p class="roll20-empty-message">채팅 로그가 없습니다. 관리자가 HTML을 업로드하면 여기에 표시됩니다.</p>';
             document.getElementById('roll20HtmlInput').value = '';
         }
-        
-        roll20IsLoading = false;
     });
 }
 
