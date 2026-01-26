@@ -1430,6 +1430,9 @@ function setupRoll20EventListeners() {
     
     // 세션 날짜
     document.getElementById('roll20EditDateBtn').addEventListener('click', editRoll20SessionDate);
+    
+    // 추가 메모
+    document.getElementById('roll20AddNoteBtn').addEventListener('click', addRoll20Note);
 
     // 관리자 모드 버튼
     document.getElementById('roll20AdminBtn').addEventListener('click', openRoll20PasswordModal);
@@ -1576,6 +1579,9 @@ function loadRoll20LogContent(logId) {
         // 세션 날짜 처리
         updateRoll20SessionDate(data ? data.session_date : null);
         
+        // 추가 메모 처리
+        renderRoll20Notes(data ? data.notes : null);
+        
         if (data && data.content) {
             renderRoll20Content(data.content);
             document.getElementById('roll20HtmlInput').value = data.content;
@@ -1663,6 +1669,128 @@ async function editRoll20SessionDate() {
         session_date: dateStr || null,
         updated_at: Date.now()
     });
+}
+
+// 추가 메모 렌더링
+function renderRoll20Notes(notes) {
+    const container = document.getElementById('roll20NotesList');
+    const addBtn = document.getElementById('roll20AddNoteBtn');
+    
+    container.innerHTML = '';
+    addBtn.style.display = roll20IsAdmin ? 'block' : 'none';
+    
+    if (!notes) return;
+    
+    const noteIds = Object.keys(notes).sort((a, b) => {
+        return (notes[a].created_at || 0) - (notes[b].created_at || 0);
+    });
+    
+    noteIds.forEach(noteId => {
+        const note = notes[noteId];
+        const item = document.createElement('div');
+        item.className = 'roll20-note-item';
+        item.dataset.noteId = noteId;
+        item.dataset.imageUrl = note.image_url || '';
+        
+        let imageHtml = '';
+        if (note.image_url) {
+            imageHtml = `<div class="roll20-note-image"><img src="${escapeHtml(note.image_url)}" alt="메모 이미지"></div>`;
+        }
+        
+        item.innerHTML = `
+            <div class="roll20-note-header" onclick="toggleRoll20Note('${noteId}')">
+                <span class="roll20-note-title">
+                    <span class="roll20-note-toggle">▶</span>
+                    ${escapeHtml(note.title || '제목 없음')}
+                </span>
+                ${roll20IsAdmin ? `
+                <div class="roll20-note-actions" onclick="event.stopPropagation()">
+                    <button onclick="editRoll20Note('${noteId}')" title="수정">✏️</button>
+                    <button onclick="deleteRoll20Note('${noteId}')" title="삭제">🗑️</button>
+                </div>
+                ` : ''}
+            </div>
+            <div class="roll20-note-content">
+                <div class="roll20-note-content-inner">${escapeHtml(note.content || '')}</div>
+                ${imageHtml}
+            </div>
+        `;
+        
+        container.appendChild(item);
+    });
+}
+
+// HTML 이스케이프
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 메모 접기/펼치기
+function toggleRoll20Note(noteId) {
+    const item = document.querySelector(`.roll20-note-item[data-note-id="${noteId}"]`);
+    if (item) {
+        item.classList.toggle('expanded');
+    }
+}
+
+// 메모 추가
+async function addRoll20Note() {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    const title = prompt('메모 제목을 입력하세요:');
+    if (!title) return;
+    
+    const content = prompt('메모 내용을 입력하세요:');
+    if (content === null) return;
+    
+    const imageUrl = prompt('이미지 URL을 입력하세요 (없으면 비워두세요):');
+    
+    const noteId = 'note_' + Date.now();
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}/notes/${noteId}`).set({
+        title: title,
+        content: content,
+        image_url: imageUrl || null,
+        created_at: Date.now()
+    });
+}
+
+// 메모 수정
+async function editRoll20Note(noteId) {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    const item = document.querySelector(`.roll20-note-item[data-note-id="${noteId}"]`);
+    if (!item) return;
+    
+    const currentTitle = item.querySelector('.roll20-note-title').textContent.trim().replace('▶', '').trim();
+    const currentContent = item.querySelector('.roll20-note-content-inner').textContent;
+    const currentImage = item.dataset.imageUrl || '';
+    
+    const newTitle = prompt('메모 제목을 입력하세요:', currentTitle);
+    if (newTitle === null) return;
+    
+    const newContent = prompt('메모 내용을 입력하세요:', currentContent);
+    if (newContent === null) return;
+    
+    const newImage = prompt('이미지 URL을 입력하세요 (삭제하려면 비워두세요):', currentImage);
+    if (newImage === null) return;
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}/notes/${noteId}`).update({
+        title: newTitle,
+        content: newContent,
+        image_url: newImage || null
+    });
+}
+
+// 메모 삭제
+async function deleteRoll20Note(noteId) {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    if (!confirm('이 메모를 삭제하시겠습니까?')) return;
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}/notes/${noteId}`).remove();
 }
 
 // Roll20 로그 추가
