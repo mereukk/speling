@@ -1276,28 +1276,30 @@ body {
 
 /* Roll20 사이드바 열기 버튼 */
 #roll20OpenSidebar {
-    position: fixed;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 60px;
-    border: none;
-    background: #5865F2;
-    color: white;
-    border-radius: 0 8px 8px 0;
-    cursor: pointer;
-    font-size: 0.8rem;
-    z-index: 999;
+    position: fixed !important;
+    left: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 24px !important;
+    height: 60px !important;
+    border: none !important;
+    background: #5865F2 !important;
+    color: white !important;
+    border-radius: 0 8px 8px 0 !important;
+    cursor: pointer !important;
+    font-size: 0.8rem !important;
+    z-index: 999 !important;
     display: none;
-    transition: background 0.2s;
-    padding: 0;
-    line-height: 60px;
-    text-align: center;
+    transition: background 0.2s !important;
+    padding: 0 !important;
+    line-height: 60px !important;
+    text-align: center !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 #roll20OpenSidebar:hover {
-    background: #4752C4;
+    background: #4752C4 !important;
 }
 
 /* Roll20 제목 수정 가능 */
