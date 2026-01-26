@@ -1558,12 +1558,22 @@ function selectRoll20Log(logId) {
 
 // Roll20 현재 로그 참조
 let roll20CurrentLogRef = null;
+let roll20IsLoading = false;
 
 // Roll20 로그 콘텐츠 로드
 function loadRoll20LogContent(logId) {
-    if (!roll20RoomId || !logId) return;
+    if (!roll20RoomId || !logId || roll20IsLoading) return;
     
-    database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).once('value', (snapshot) => {
+    // 기존 구독 해제
+    if (roll20CurrentLogRef) {
+        roll20CurrentLogRef.off();
+        roll20CurrentLogRef = null;
+    }
+    
+    roll20IsLoading = true;
+    roll20CurrentLogRef = database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`);
+    
+    roll20CurrentLogRef.on('value', (snapshot) => {
         const data = snapshot.val();
         
         // 세션 카드 이미지 처리
@@ -1583,6 +1593,8 @@ function loadRoll20LogContent(logId) {
                 '<p class="roll20-empty-message">채팅 로그가 없습니다. 관리자가 HTML을 업로드하면 여기에 표시됩니다.</p>';
             document.getElementById('roll20HtmlInput').value = '';
         }
+        
+        roll20IsLoading = false;
     });
 }
 
@@ -1948,6 +1960,10 @@ function subscribeToRoll20Room(roomId) {
     if (roll20LogsRef) {
         roll20LogsRef.off();
         roll20LogsRef = null;
+    }
+    if (roll20CurrentLogRef) {
+        roll20CurrentLogRef.off();
+        roll20CurrentLogRef = null;
     }
 
     // 앱 제목 로드
