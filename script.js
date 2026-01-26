@@ -1929,10 +1929,9 @@ function renderRoll20Content(htmlContent) {
     // 이모지 뒤 물음표 제거
     processedContent = processedContent.replace(/🎲\s*\?+/g, '🎲');
     
-    // "XX 판정" 패턴 뒤의 깨진 문자를 🎲로 변환
-    // 예: "듣기 판정 □" -> "듣기 판정 🎲"
-    processedContent = processedContent.replace(/(판정\s*)<\/a>/g, '$1🎲</a>');
-    processedContent = processedContent.replace(/(판정)\s+[^\s<\w가-힣]/g, '$1 🎲');
+    // "XX 판정" 패턴 뒤에 이미 🎲가 없는 경우에만 추가
+    // 이미 🎲가 있으면 건드리지 않음
+    processedContent = processedContent.replace(/(판정\s*)(?!🎲)<\/a>/g, '$1🎲</a>');
     
     container.innerHTML = processedContent;
     
