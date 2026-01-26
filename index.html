@@ -11,6 +11,17 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
 <body>
+    <!-- 앱 탭 전환 -->
+    <div class="app-tabs">
+        <div class="app-tabs-left">
+            <button class="app-tab active" data-app="rp">RP 포맷터</button>
+            <button class="app-tab" data-app="roll20">Roll20 뷰어</button>
+        </div>
+        <button id="globalShareBtn" class="btn btn-primary btn-share-global">공유 링크</button>
+    </div>
+
+    <!-- RP 포맷터 섹션 -->
+    <div id="rpSection" class="app-section active">
     <div class="app-container">
         <!-- 왼쪽 사이드바 -->
         <aside class="sidebar" id="sidebar">
@@ -20,7 +31,6 @@
             </div>
             <div class="sidebar-actions">
                 <button id="manageCharactersBtn" class="btn btn-secondary btn-full">캐릭터 관리</button>
-                <button id="shareBtn" class="btn btn-secondary btn-full">공유 링크</button>
             </div>
             <div class="sidebar-content">
                 <div class="sidebar-section">
@@ -69,6 +79,90 @@
                 </section>
             </div>
         </main>
+    </div>
+    </div><!-- end rpSection -->
+
+    <!-- Roll20 뷰어 섹션 -->
+    <div id="roll20Section" class="app-section">
+        <div class="roll20-app-container">
+            <!-- Roll20 사이드바 -->
+            <aside class="roll20-sidebar" id="roll20Sidebar">
+                <div class="sidebar-header">
+                    <h1 class="app-title">Roll20 뷰어</h1>
+                    <button id="roll20ToggleSidebar" class="btn-toggle" title="사이드바 접기">◀</button>
+                </div>
+                <div class="sidebar-actions">
+                    <button id="roll20AdminBtn" class="btn btn-primary btn-full">관리자 모드</button>
+                </div>
+                <div class="sidebar-content">
+                    <div class="sidebar-section">
+                        <div class="section-header">
+                            <span>로그 목록</span>
+                            <div class="section-actions">
+                                <button id="roll20DeleteModeBtn" class="btn-icon" title="선택 삭제">🗑️</button>
+                                <button id="roll20AddLogBtn" class="btn-add" title="새 로그 추가">+</button>
+                            </div>
+                        </div>
+                        <div id="roll20DeleteModeBar" class="delete-mode-bar" style="display:none;">
+                            <span id="roll20DeleteModeCount">0개 선택</span>
+                            <div class="delete-mode-actions">
+                                <button id="roll20ConfirmDeleteBtn" class="btn btn-danger btn-small" disabled>삭제</button>
+                                <button id="roll20CancelDeleteBtn" class="btn btn-secondary btn-small">취소</button>
+                            </div>
+                        </div>
+                        <div class="conversation-list" id="roll20LogList">
+                            <!-- 로그 목록이 여기에 동적으로 추가됨 -->
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 사이드바 접힌 상태에서 펼치기 버튼 -->
+            <button id="roll20OpenSidebar" class="btn-open-sidebar" title="사이드바 열기">▶</button>
+
+            <!-- Roll20 메인 컨텐츠 -->
+            <main class="roll20-main">
+                <div class="roll20-header">
+                    <h2 id="roll20CurrentLogTitle" class="conversation-title">로그를 선택하세요</h2>
+                    <button id="roll20LogoutBtn" class="btn btn-secondary btn-small" style="display: none;">로그아웃</button>
+                </div>
+
+                <!-- 관리자 패널 (기본 숨김) -->
+                <div id="roll20AdminPanel" class="roll20-admin-panel" style="display: none;">
+                    <div class="admin-panel-header">
+                        <h3>HTML 입력</h3>
+                    </div>
+                    <textarea id="roll20HtmlInput" placeholder="Roll20에서 복사한 채팅 로그 HTML을 여기에 붙여넣으세요..."></textarea>
+                    <div class="admin-panel-actions">
+                        <button id="roll20SaveBtn" class="btn btn-primary">저장</button>
+                        <button id="roll20PreviewBtn" class="btn btn-secondary">미리보기</button>
+                    </div>
+                </div>
+
+                <!-- 세션 카드 이미지 -->
+                <div id="roll20SessionCard" class="roll20-session-card" style="display: none;">
+                    <img id="roll20SessionImage" src="" alt="세션 카드">
+                    <button id="roll20EditImageBtn" class="btn-edit-image" style="display: none;" title="이미지 수정">✏️</button>
+                </div>
+                <div id="roll20AddImageBtn" class="roll20-add-image" style="display: none;">
+                    <button class="btn btn-secondary btn-full">🖼️ 세션 카드 이미지 추가</button>
+                </div>
+                
+                <!-- 세션 날짜 -->
+                <div id="roll20SessionDate" class="roll20-session-date">
+                    <span class="date-icon">📅</span>
+                    <span id="roll20DateText" class="date-text">날짜 미설정</span>
+                    <button id="roll20EditDateBtn" class="btn-edit-date" style="display: none;" title="날짜 수정">✏️</button>
+                </div>
+
+                <!-- 채팅 로그 표시 영역 -->
+                <div id="roll20ChatContainer" class="roll20-chat-container">
+                    <div id="roll20ChatContent" class="roll20-chat-content">
+                        <p class="roll20-empty-message">로그를 선택하거나 새 로그를 추가하세요.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
     </div>
 
     <!-- 글쓰기 모달 -->
@@ -170,7 +264,7 @@
         </div>
     </div>
 
-    <!-- 공유 링크 모달 -->
+    <!-- 통합 공유 링크 모달 -->
     <div id="shareModal" class="modal">
         <div class="modal-content modal-small">
             <div class="modal-header">
@@ -178,14 +272,55 @@
                 <button class="modal-close" id="closeShareModal">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="share-desc">현재 대화를 링크로 공유할 수 있습니다. 링크를 통해 접속한 사람은 실시간으로 수정 내용을 볼 수 있습니다.</p>
+                <p class="share-desc">RP 포맷터와 Roll20 뷰어를 함께 공유할 수 있습니다. 링크를 통해 접속한 사람은 실시간으로 내용을 볼 수 있습니다.</p>
                 <button id="generateLinkBtn" class="btn btn-primary btn-full" onclick="generateShareLink()">🔗 공유 링크 생성</button>
                 <p id="shareStatus" class="share-status"></p>
                 <div class="share-link-container">
                     <input type="text" id="shareLink" readonly placeholder="링크 생성 버튼을 클릭하세요">
                     <button id="copyLinkBtn" class="btn btn-secondary" disabled>복사</button>
                 </div>
-                <p class="share-note">💡 이 대화를 수정하면 공유 링크에도 자동으로 반영됩니다.</p>
+                <p class="share-note">💡 Roll20 뷰어는 관리자 모드로 로그인해야 공유에 포함됩니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Roll20 비밀번호 모달 -->
+    <div id="roll20PasswordModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button class="modal-close" id="closeRoll20PasswordModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">관리자 비밀번호를 입력하세요.</p>
+                <div class="form-group">
+                    <label for="roll20Password">비밀번호</label>
+                    <input type="password" id="roll20Password" placeholder="비밀번호 입력">
+                </div>
+                <p id="roll20PasswordError" class="error-message" style="display: none;"></p>
+                <div class="modal-actions">
+                    <button id="roll20PasswordSubmit" class="btn btn-primary">확인</button>
+                </div>
+                <p class="modal-note">처음 접속 시 입력한 비밀번호가 관리자 비밀번호로 설정됩니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Roll20 공유 링크 모달 -->
+    <div id="roll20ShareModal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Roll20 로그 공유</h2>
+                <button class="modal-close" id="closeRoll20ShareModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="share-desc">이 Roll20 채팅 로그를 다른 사람과 공유할 수 있습니다. 공유 링크로 접속한 사람은 실시간으로 업데이트를 볼 수 있습니다.</p>
+                <button id="roll20GenerateLinkBtn" class="btn btn-primary btn-full">🔗 공유 링크 생성</button>
+                <p id="roll20ShareStatus" class="share-status"></p>
+                <div class="share-link-container">
+                    <input type="text" id="roll20ShareLink" readonly placeholder="링크 생성 버튼을 클릭하세요">
+                    <button id="roll20CopyLinkBtn" class="btn btn-secondary" disabled>복사</button>
+                </div>
             </div>
         </div>
     </div>

@@ -83,8 +83,8 @@ function setupEventListeners() {
     document.getElementById('closeEditCharModal').addEventListener('click', closeEditCharModal);
     document.getElementById('saveEditCharBtn').addEventListener('click', saveEditCharacter);
     
-    // 공유 버튼
-    document.getElementById('shareBtn').addEventListener('click', openShareModal);
+    // 통합 공유 버튼
+    document.getElementById('globalShareBtn').addEventListener('click', openGlobalShareModal);
     document.getElementById('closeShareModal').addEventListener('click', closeShareModal);
     document.getElementById('copyLinkBtn').addEventListener('click', copyShareLink);
     
@@ -1003,15 +1003,32 @@ function handleFileUpload(e) {
 }
 
 // ==================== 공유 기능 ====================
-function openShareModal() {
+function openGlobalShareModal() {
     shareModal.classList.add('active');
     const linkInput = document.getElementById('shareLink');
     const statusEl = document.getElementById('shareStatus');
     const copyBtn = document.getElementById('copyLinkBtn');
 
-    if (currentRoomId) {
-        linkInput.value = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
-        statusEl.textContent = '✓ 사이트(대화 목록 전체) 공유 링크입니다. 이 링크로 실시간 반영됩니다.';
+    // 통합 공유 링크 생성
+    const params = new URLSearchParams();
+    if (currentRoomId) params.set('room', currentRoomId);
+    if (roll20RoomId) params.set('roll20', roll20RoomId);
+    
+    if (params.toString()) {
+        linkInput.value = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+        
+        const hasRP = !!currentRoomId;
+        const hasRoll20 = !!roll20RoomId;
+        let msg = '✓ ';
+        if (hasRP && hasRoll20) {
+            msg += 'RP 포맷터 + Roll20 뷰어 통합 공유 링크입니다.';
+        } else if (hasRP) {
+            msg += 'RP 포맷터 공유 링크입니다. (Roll20은 관리자 로그인 필요)';
+        } else {
+            msg += 'Roll20 뷰어 공유 링크입니다. (RP 포맷터는 공유 생성 필요)';
+        }
+        
+        statusEl.textContent = msg;
         statusEl.className = 'share-status success';
         copyBtn.disabled = false;
         return;
@@ -1071,10 +1088,22 @@ async function generateShareLink() {
 
         currentRoomId = roomId;
         localStorage.setItem('rpFormatter_roomId', currentRoomId);
-        const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+        
+        // 통합 공유 링크 생성
+        const params = new URLSearchParams();
+        params.set('room', roomId);
+        if (roll20RoomId) params.set('roll20', roll20RoomId);
+        
+        const shareUrl = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
         
         linkInput.value = shareUrl;
-        statusEl.textContent = '✓ 사이트 공유 링크가 생성되었습니다! (실시간 반영)';
+        
+        const hasRoll20 = !!roll20RoomId;
+        if (hasRoll20) {
+            statusEl.textContent = '✓ RP 포맷터 + Roll20 뷰어 통합 링크가 생성되었습니다!';
+        } else {
+            statusEl.textContent = '✓ RP 포맷터 공유 링크가 생성되었습니다! (Roll20은 관리자 로그인 필요)';
+        }
         statusEl.className = 'share-status success';
         copyBtn.disabled = false;
         saveToStorage();
@@ -1352,3 +1381,1041 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ==================== Roll20 뷰어 ====================
+// Roll20 전역 변수
+let roll20RoomId = null;
+let roll20IsAdmin = false;
+let roll20Password = null;
+let roll20Unsubscribe = null;
+
+// Roll20 로그 목록 관련 변수
+let roll20Logs = []; // { id, title, created_at, updated_at }
+let activeRoll20LogId = null;
+let roll20DeleteMode = false;
+let roll20SelectedForDelete = new Set();
+
+// Roll20 초기화 (DOMContentLoaded에서 호출)
+function initRoll20() {
+    setupRoll20EventListeners();
+    loadRoll20FromURL();
+}
+
+// Roll20 이벤트 리스너 설정
+function setupRoll20EventListeners() {
+    // 앱 탭 전환
+    document.querySelectorAll('.app-tab').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            const appType = e.target.dataset.app;
+            switchApp(appType);
+        });
+    });
+
+    // 사이드바 토글
+    document.getElementById('roll20ToggleSidebar').addEventListener('click', toggleRoll20Sidebar);
+    document.getElementById('roll20OpenSidebar').addEventListener('click', openRoll20Sidebar);
+    
+    // 앱 제목 더블클릭으로 수정
+    document.querySelector('.roll20-sidebar .app-title').addEventListener('dblclick', editRoll20AppTitle);
+
+    // 로그 추가/삭제
+    document.getElementById('roll20AddLogBtn').addEventListener('click', addRoll20Log);
+    document.getElementById('roll20DeleteModeBtn').addEventListener('click', toggleRoll20DeleteMode);
+    document.getElementById('roll20ConfirmDeleteBtn').addEventListener('click', confirmRoll20Delete);
+    document.getElementById('roll20CancelDeleteBtn').addEventListener('click', cancelRoll20DeleteMode);
+    
+    // 세션 카드 이미지
+    document.getElementById('roll20AddImageBtn').querySelector('button').addEventListener('click', addRoll20SessionImage);
+    document.getElementById('roll20EditImageBtn').addEventListener('click', editRoll20SessionImage);
+    
+    // 세션 날짜
+    document.getElementById('roll20EditDateBtn').addEventListener('click', editRoll20SessionDate);
+
+    // 관리자 모드 버튼
+    document.getElementById('roll20AdminBtn').addEventListener('click', openRoll20PasswordModal);
+    document.getElementById('closeRoll20PasswordModal').addEventListener('click', closeRoll20PasswordModal);
+    document.getElementById('roll20PasswordSubmit').addEventListener('click', submitRoll20Password);
+    
+    // 비밀번호 입력에서 엔터키
+    document.getElementById('roll20Password').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') submitRoll20Password();
+    });
+
+    // 로그아웃
+    document.getElementById('roll20LogoutBtn').addEventListener('click', roll20Logout);
+
+    // 저장/미리보기
+    document.getElementById('roll20SaveBtn').addEventListener('click', saveRoll20Html);
+    document.getElementById('roll20PreviewBtn').addEventListener('click', previewRoll20Html);
+
+    // Roll20 공유 모달 (통합 공유로 대체됨)
+    // document.getElementById('roll20ShareBtn').addEventListener('click', openRoll20ShareModal);
+    // document.getElementById('closeRoll20ShareModal').addEventListener('click', closeRoll20ShareModal);
+    // document.getElementById('roll20GenerateLinkBtn').addEventListener('click', generateRoll20ShareLink);
+    // document.getElementById('roll20CopyLinkBtn').addEventListener('click', copyRoll20ShareLink);
+
+    // 모달 외부 클릭 닫기
+    document.getElementById('roll20PasswordModal').addEventListener('click', (e) => {
+        if (e.target.id === 'roll20PasswordModal') closeRoll20PasswordModal();
+    });
+    document.getElementById('roll20ShareModal').addEventListener('click', (e) => {
+        if (e.target.id === 'roll20ShareModal') closeRoll20ShareModal();
+    });
+}
+
+// Roll20 사이드바 토글
+function toggleRoll20Sidebar() {
+    const sidebar = document.getElementById('roll20Sidebar');
+    const openBtn = document.getElementById('roll20OpenSidebar');
+    sidebar.classList.add('collapsed');
+    openBtn.style.display = 'flex';
+}
+
+function openRoll20Sidebar() {
+    const sidebar = document.getElementById('roll20Sidebar');
+    const openBtn = document.getElementById('roll20OpenSidebar');
+    sidebar.classList.remove('collapsed');
+    openBtn.style.display = 'none';
+}
+
+// Roll20 앱 제목 수정
+function editRoll20AppTitle() {
+    if (!roll20IsAdmin) {
+        alert('관리자만 제목을 수정할 수 있습니다.');
+        return;
+    }
+    
+    const titleEl = document.querySelector('.roll20-sidebar .app-title');
+    const currentTitle = titleEl.textContent;
+    const newTitle = prompt('새 제목을 입력하세요:', currentTitle);
+    
+    if (newTitle && newTitle !== currentTitle) {
+        titleEl.textContent = newTitle;
+        
+        // Firebase에 저장
+        if (roll20RoomId) {
+            database.ref(`roll20_rooms/${roll20RoomId}`).update({
+                app_title: newTitle
+            });
+        }
+    }
+}
+
+// Roll20 로그 목록 렌더링
+function renderRoll20LogList() {
+    const container = document.getElementById('roll20LogList');
+    container.innerHTML = '';
+    
+    if (roll20Logs.length === 0) {
+        container.innerHTML = '<p class="empty-list">로그가 없습니다. + 버튼을 눌러 추가하세요.</p>';
+        return;
+    }
+    
+    roll20Logs.forEach(log => {
+        const item = document.createElement('div');
+        item.className = 'conversation-item' + (log.id === activeRoll20LogId ? ' active' : '');
+        item.dataset.logId = log.id;
+        
+        if (roll20DeleteMode) {
+            const isSelected = roll20SelectedForDelete.has(log.id);
+            item.innerHTML = `
+                <input type="checkbox" class="delete-checkbox" ${isSelected ? 'checked' : ''}>
+                <span class="conversation-title-text">${log.title}</span>
+            `;
+            item.querySelector('.delete-checkbox').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    roll20SelectedForDelete.add(log.id);
+                } else {
+                    roll20SelectedForDelete.delete(log.id);
+                }
+                updateRoll20DeleteModeCount();
+            });
+        } else {
+            item.innerHTML = `<span class="conversation-title-text">${log.title}</span>`;
+            item.addEventListener('click', () => selectRoll20Log(log.id));
+            item.addEventListener('dblclick', () => renameRoll20Log(log.id));
+        }
+        
+        container.appendChild(item);
+    });
+}
+
+// Roll20 로그 선택
+function selectRoll20Log(logId) {
+    activeRoll20LogId = logId;
+    renderRoll20LogList();
+    loadRoll20LogContent(logId);
+    
+    // 제목 업데이트
+    const log = roll20Logs.find(l => l.id === logId);
+    if (log) {
+        document.getElementById('roll20CurrentLogTitle').textContent = log.title;
+    }
+}
+
+// Roll20 현재 로그 참조
+let roll20CurrentLogRef = null;
+
+// Roll20 로그 콘텐츠 로드
+function loadRoll20LogContent(logId) {
+    if (!roll20RoomId || !logId) return;
+    
+    // 기존 구독 해제
+    if (roll20CurrentLogRef) {
+        roll20CurrentLogRef.off();
+        roll20CurrentLogRef = null;
+    }
+    
+    roll20CurrentLogRef = database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`);
+    roll20CurrentLogRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        
+        // 세션 카드 이미지 처리
+        updateRoll20SessionImage(data ? data.image_url : null);
+        
+        // 세션 날짜 처리
+        updateRoll20SessionDate(data ? data.session_date : null);
+        
+        if (data && data.content) {
+            renderRoll20Content(data.content);
+            document.getElementById('roll20HtmlInput').value = data.content;
+        } else {
+            document.getElementById('roll20ChatContent').innerHTML = 
+                '<p class="roll20-empty-message">채팅 로그가 없습니다. 관리자가 HTML을 업로드하면 여기에 표시됩니다.</p>';
+            document.getElementById('roll20HtmlInput').value = '';
+        }
+    });
+}
+
+// 세션 카드 이미지 업데이트
+function updateRoll20SessionImage(imageUrl) {
+    const cardDiv = document.getElementById('roll20SessionCard');
+    const addBtn = document.getElementById('roll20AddImageBtn');
+    const editBtn = document.getElementById('roll20EditImageBtn');
+    const img = document.getElementById('roll20SessionImage');
+    
+    if (imageUrl) {
+        img.src = imageUrl;
+        cardDiv.style.display = 'block';
+        addBtn.style.display = 'none';
+        editBtn.style.display = roll20IsAdmin ? 'block' : 'none';
+    } else {
+        cardDiv.style.display = 'none';
+        addBtn.style.display = roll20IsAdmin ? 'block' : 'none';
+    }
+}
+
+// 세션 카드 이미지 추가
+async function addRoll20SessionImage() {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    const imageUrl = prompt('세션 카드 이미지 URL을 입력하세요:');
+    if (!imageUrl) return;
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}`).update({
+        image_url: imageUrl,
+        updated_at: Date.now()
+    });
+}
+
+// 세션 카드 이미지 수정
+async function editRoll20SessionImage() {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    const currentUrl = document.getElementById('roll20SessionImage').src;
+    const imageUrl = prompt('세션 카드 이미지 URL을 입력하세요:\n(비우면 이미지가 삭제됩니다)', currentUrl);
+    
+    if (imageUrl === null) return; // 취소
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}`).update({
+        image_url: imageUrl || null,
+        updated_at: Date.now()
+    });
+}
+
+// 세션 날짜 업데이트
+function updateRoll20SessionDate(dateStr) {
+    const dateText = document.getElementById('roll20DateText');
+    const editBtn = document.getElementById('roll20EditDateBtn');
+    
+    if (dateStr) {
+        dateText.textContent = dateStr;
+        dateText.style.color = '#333';
+    } else {
+        dateText.textContent = '날짜 미설정';
+        dateText.style.color = '#999';
+    }
+    
+    editBtn.style.display = roll20IsAdmin ? 'block' : 'none';
+}
+
+// 세션 날짜 수정
+async function editRoll20SessionDate() {
+    if (!roll20IsAdmin || !activeRoll20LogId) return;
+    
+    const currentDate = document.getElementById('roll20DateText').textContent;
+    const isDefault = currentDate === '날짜 미설정';
+    const dateStr = prompt('세션 날짜를 입력하세요:\n(예: 2024.01.15, 1월 15일 등)', isDefault ? '' : currentDate);
+    
+    if (dateStr === null) return; // 취소
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}`).update({
+        session_date: dateStr || null,
+        updated_at: Date.now()
+    });
+}
+
+// Roll20 로그 추가
+async function addRoll20Log() {
+    if (!roll20IsAdmin) {
+        alert('관리자만 로그를 추가할 수 있습니다. 먼저 관리자 모드로 로그인하세요.');
+        return;
+    }
+    
+    if (!roll20RoomId) {
+        alert('먼저 관리자 모드로 로그인하세요.');
+        return;
+    }
+    
+    const title = prompt('로그 제목을 입력하세요:', '새 세션');
+    if (!title) return;
+    
+    const logId = 'log_' + Date.now();
+    const newLog = {
+        id: logId,
+        title: title,
+        content: '',
+        created_at: Date.now(),
+        updated_at: Date.now()
+    };
+    
+    try {
+        // Firebase에 저장
+        await database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).set(newLog);
+        
+        // 로컬 목록에 추가하고 선택
+        roll20Logs.push({ id: logId, title: title, created_at: newLog.created_at });
+        selectRoll20Log(logId);
+    } catch (error) {
+        console.error('로그 추가 실패:', error);
+        alert('로그 추가에 실패했습니다. 다시 시도해주세요.');
+    }
+}
+
+// Roll20 로그 이름 변경
+async function renameRoll20Log(logId) {
+    if (!roll20IsAdmin) return;
+    
+    const log = roll20Logs.find(l => l.id === logId);
+    if (!log) return;
+    
+    const newTitle = prompt('새 제목을 입력하세요:', log.title);
+    if (!newTitle || newTitle === log.title) return;
+    
+    // Firebase 업데이트
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).update({
+        title: newTitle,
+        updated_at: Date.now()
+    });
+    
+    // 로컬 업데이트
+    log.title = newTitle;
+    renderRoll20LogList();
+    
+    if (logId === activeRoll20LogId) {
+        document.getElementById('roll20CurrentLogTitle').textContent = newTitle;
+    }
+}
+
+// Roll20 삭제 모드 토글
+function toggleRoll20DeleteMode() {
+    if (!roll20IsAdmin) {
+        alert('관리자만 삭제할 수 있습니다.');
+        return;
+    }
+    
+    roll20DeleteMode = true;
+    roll20SelectedForDelete.clear();
+    document.getElementById('roll20DeleteModeBar').style.display = 'flex';
+    document.getElementById('roll20DeleteModeBtn').style.display = 'none';
+    document.getElementById('roll20AddLogBtn').style.display = 'none';
+    renderRoll20LogList();
+    updateRoll20DeleteModeCount();
+}
+
+function cancelRoll20DeleteMode() {
+    roll20DeleteMode = false;
+    roll20SelectedForDelete.clear();
+    document.getElementById('roll20DeleteModeBar').style.display = 'none';
+    document.getElementById('roll20DeleteModeBtn').style.display = '';
+    document.getElementById('roll20AddLogBtn').style.display = '';
+    renderRoll20LogList();
+}
+
+function updateRoll20DeleteModeCount() {
+    const count = roll20SelectedForDelete.size;
+    document.getElementById('roll20DeleteModeCount').textContent = `${count}개 선택`;
+    document.getElementById('roll20ConfirmDeleteBtn').disabled = count === 0;
+}
+
+async function confirmRoll20Delete() {
+    if (roll20SelectedForDelete.size === 0) return;
+    
+    if (!confirm(`선택한 ${roll20SelectedForDelete.size}개의 로그를 삭제하시겠습니까?`)) return;
+    
+    // Firebase에서 삭제
+    for (const logId of roll20SelectedForDelete) {
+        await database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).remove();
+    }
+    
+    // 로컬에서 삭제
+    roll20Logs = roll20Logs.filter(log => !roll20SelectedForDelete.has(log.id));
+    
+    // 현재 선택된 로그가 삭제되었으면 초기화
+    if (roll20SelectedForDelete.has(activeRoll20LogId)) {
+        activeRoll20LogId = null;
+        document.getElementById('roll20CurrentLogTitle').textContent = '로그를 선택하세요';
+        document.getElementById('roll20ChatContent').innerHTML = 
+            '<p class="roll20-empty-message">로그를 선택하거나 새 로그를 추가하세요.</p>';
+    }
+    
+    cancelRoll20DeleteMode();
+}
+
+// 앱 전환
+function switchApp(appType) {
+    document.querySelectorAll('.app-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.app === appType);
+    });
+    document.querySelectorAll('.app-section').forEach(section => {
+        section.classList.toggle('active', section.id === (appType === 'rp' ? 'rpSection' : 'roll20Section'));
+    });
+
+    // Roll20 탭으로 전환 시 URL 파라미터 확인
+    if (appType === 'roll20') {
+        loadRoll20FromURL();
+    }
+}
+
+// URL에서 Roll20 룸 ID 로드
+function loadRoll20FromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('roll20');
+    
+    if (roomId) {
+        roll20RoomId = roomId;
+        subscribeToRoll20Room(roomId);
+        
+        // Roll20 탭으로 자동 전환
+        switchApp('roll20');
+    }
+}
+
+// Roll20 룸 구독 (실시간)
+// Roll20 로그 목록 참조
+let roll20LogsRef = null;
+
+function subscribeToRoll20Room(roomId) {
+    // 기존 구독 해제
+    if (roll20LogsRef) {
+        roll20LogsRef.off();
+        roll20LogsRef = null;
+    }
+    if (roll20CurrentLogRef) {
+        roll20CurrentLogRef.off();
+        roll20CurrentLogRef = null;
+    }
+
+    // 앱 제목 로드
+    database.ref(`roll20_rooms/${roomId}/app_title`).once('value', (snapshot) => {
+        const appTitle = snapshot.val();
+        if (appTitle) {
+            document.querySelector('.roll20-sidebar .app-title').textContent = appTitle;
+        }
+    });
+
+    // 로그 목록 구독
+    roll20LogsRef = database.ref(`roll20_rooms/${roomId}/logs`);
+    
+    roll20LogsRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        roll20Logs = [];
+        
+        if (data) {
+            Object.keys(data).forEach(logId => {
+                roll20Logs.push({
+                    id: logId,
+                    title: data[logId].title || '제목 없음',
+                    created_at: data[logId].created_at || 0
+                });
+            });
+            // 생성일 기준 정렬
+            roll20Logs.sort((a, b) => a.created_at - b.created_at);
+        }
+        
+        renderRoll20LogList();
+        
+        if (roll20Logs.length > 0) {
+            // 선택된 로그가 없거나 목록에 없으면 첫 번째 선택
+            const activeExists = roll20Logs.some(l => l.id === activeRoll20LogId);
+            if (!activeRoll20LogId || !activeExists) {
+                selectRoll20Log(roll20Logs[0].id);
+            } else {
+                // 이미 선택된 로그가 있으면 콘텐츠 로드
+                loadRoll20LogContent(activeRoll20LogId);
+                const log = roll20Logs.find(l => l.id === activeRoll20LogId);
+                if (log) {
+                    document.getElementById('roll20CurrentLogTitle').textContent = log.title;
+                }
+            }
+        } else {
+            activeRoll20LogId = null;
+            document.getElementById('roll20ChatContent').innerHTML = 
+                '<p class="roll20-empty-message">로그를 선택하거나 새 로그를 추가하세요.</p>';
+        }
+    });
+}
+
+// Roll20 파스텔 배경색 (5가지)
+const roll20PastelColors = [
+    '#fef0f3', // 연한 분홍
+    '#e3f2fd', // 연한 파랑
+    '#e8eaf6', // 연한 인디고
+    '#e8f5e9', // 연한 초록
+    '#fff8e1'  // 연한 노랑
+];
+
+// 캐릭터 이름 -> 색상 매핑
+const roll20CharacterColorMap = {};
+let roll20ColorIndex = 0;
+
+// 캐릭터 이름으로 색상 가져오기
+function getRoll20CharacterColor(characterName) {
+    if (!characterName) return '#ffffff';
+    
+    // 이미 할당된 색상이 있으면 반환
+    if (roll20CharacterColorMap[characterName]) {
+        return roll20CharacterColorMap[characterName];
+    }
+    
+    // 새 색상 할당
+    const color = roll20PastelColors[roll20ColorIndex % roll20PastelColors.length];
+    roll20CharacterColorMap[characterName] = color;
+    roll20ColorIndex++;
+    
+    return color;
+}
+
+// Roll20 콘텐츠 렌더링
+function renderRoll20Content(htmlContent) {
+    const container = document.getElementById('roll20ChatContent');
+    
+    // 깨진 이모지 변환 및 판정 텍스트에 🎲 추가
+    let processedContent = htmlContent;
+    
+    // 다양한 깨진 이모지/문자 패턴 처리
+    processedContent = processedContent.replace(/□/g, '🎲');
+    processedContent = processedContent.replace(/&#x1F3B2;/gi, '🎲');
+    processedContent = processedContent.replace(/&#127922;/g, '🎲');
+    processedContent = processedContent.replace(/\uFFFD/g, '🎲'); // replacement character
+    
+    // 깨진 서로게이트 쌍 제거 (물음표, @? 패턴 등)
+    processedContent = processedContent.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '');
+    processedContent = processedContent.replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+    
+    // @ 뒤에 물음표가 여러 개 있는 패턴 제거 (깨진 이모지)
+    processedContent = processedContent.replace(/@\?+/g, '');
+    processedContent = processedContent.replace(/\?{3,}/g, '');
+    // 이모지 뒤 물음표 제거
+    processedContent = processedContent.replace(/🎲\s*\?+/g, '🎲');
+    
+    // "XX 판정" 패턴 뒤의 깨진 문자를 🎲로 변환
+    // 예: "듣기 판정 □" -> "듣기 판정 🎲"
+    processedContent = processedContent.replace(/(판정\s*)<\/a>/g, '$1🎲</a>');
+    processedContent = processedContent.replace(/(판정)\s+[^\s<\w가-힣]/g, '$1 🎲');
+    
+    container.innerHTML = processedContent;
+    
+    // 캐릭터별 배경색 적용
+    applyRoll20CharacterColors();
+    
+    // 관리자 모드면 수정/삭제 버튼 추가
+    if (roll20IsAdmin) {
+        container.classList.add('admin-mode');
+        addAdminActionsToMessages();
+    }
+}
+
+// 캐릭터별 배경색 적용
+function applyRoll20CharacterColors() {
+    // 색상 맵 초기화
+    Object.keys(roll20CharacterColorMap).forEach(key => delete roll20CharacterColorMap[key]);
+    roll20ColorIndex = 0;
+    
+    const messages = document.querySelectorAll('.roll20-chat-content .message.general');
+    let currentCharacter = null;
+    
+    messages.forEach(msg => {
+        const byElement = msg.querySelector('.by');
+        
+        if (byElement) {
+            // 새 캐릭터 이름 발견
+            currentCharacter = byElement.textContent.trim().replace(/:$/, '');
+        }
+        
+        if (currentCharacter) {
+            const color = getRoll20CharacterColor(currentCharacter);
+            msg.style.backgroundColor = color;
+        }
+    });
+}
+
+// Roll20 비밀번호 모달 열기
+function openRoll20PasswordModal() {
+    document.getElementById('roll20PasswordModal').classList.add('active');
+    document.getElementById('roll20Password').value = '';
+    document.getElementById('roll20PasswordError').style.display = 'none';
+    document.getElementById('roll20Password').focus();
+}
+
+// Roll20 비밀번호 모달 닫기
+function closeRoll20PasswordModal() {
+    document.getElementById('roll20PasswordModal').classList.remove('active');
+}
+
+// Roll20 비밀번호 제출
+async function submitRoll20Password() {
+    const password = document.getElementById('roll20Password').value.trim();
+    if (!password) {
+        showRoll20PasswordError('비밀번호를 입력하세요.');
+        return;
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    // 룸이 없으면 새로 생성
+    if (!roll20RoomId) {
+        roll20RoomId = generateRoomId();
+        roll20Password = hashedPassword;
+        roll20IsAdmin = true;
+        
+        // Firebase에 룸 생성 (새 구조)
+        await database.ref('roll20_rooms/' + roll20RoomId).set({
+            password: hashedPassword,
+            created_at: Date.now(),
+            logs: {}
+        });
+        
+        // 룸 구독
+        subscribeToRoll20Room(roll20RoomId);
+        
+        // URL 업데이트
+        updateRoll20URL();
+        
+        closeRoll20PasswordModal();
+        showRoll20AdminPanel();
+        return;
+    }
+
+    // 기존 룸의 비밀번호 확인
+    const snapshot = await database.ref('roll20_rooms/' + roll20RoomId + '/password').once('value');
+    const storedPassword = snapshot.val();
+
+    if (!storedPassword) {
+        // 비밀번호가 없으면 설정
+        await database.ref('roll20_rooms/' + roll20RoomId + '/password').set(hashedPassword);
+        roll20Password = hashedPassword;
+        roll20IsAdmin = true;
+        closeRoll20PasswordModal();
+        showRoll20AdminPanel();
+    } else if (storedPassword === hashedPassword) {
+        // 비밀번호 일치
+        roll20Password = hashedPassword;
+        roll20IsAdmin = true;
+        closeRoll20PasswordModal();
+        showRoll20AdminPanel();
+    } else {
+        // 비밀번호 불일치
+        showRoll20PasswordError('비밀번호가 일치하지 않습니다.');
+    }
+}
+
+// 비밀번호 해시
+async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 룸 ID 생성
+function generateRoomId() {
+    return 'roll20_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
+// Roll20 비밀번호 에러 표시
+function showRoll20PasswordError(message) {
+    const errorEl = document.getElementById('roll20PasswordError');
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+}
+
+// 관리자 패널 표시
+function showRoll20AdminPanel() {
+    document.getElementById('roll20AdminPanel').style.display = 'block';
+    document.getElementById('roll20AdminBtn').textContent = '관리자 모드 (활성)';
+    document.getElementById('roll20AdminBtn').classList.add('btn-success');
+    document.getElementById('roll20LogoutBtn').style.display = '';
+    
+    // 세션 카드 이미지 버튼 표시
+    const cardDiv = document.getElementById('roll20SessionCard');
+    if (cardDiv.style.display === 'none') {
+        document.getElementById('roll20AddImageBtn').style.display = 'block';
+    } else {
+        document.getElementById('roll20EditImageBtn').style.display = 'block';
+    }
+    
+    // 세션 날짜 수정 버튼 표시
+    document.getElementById('roll20EditDateBtn').style.display = 'block';
+    
+    // 채팅 컨테이너에 admin-mode 클래스 추가
+    document.getElementById('roll20ChatContent').classList.add('admin-mode');
+    
+    // 메시지에 수정/삭제 버튼 추가
+    addAdminActionsToMessages();
+}
+
+// 관리자 패널 숨기기
+function hideRoll20AdminPanel() {
+    document.getElementById('roll20AdminPanel').style.display = 'none';
+    document.getElementById('roll20AdminBtn').textContent = '관리자 모드';
+    document.getElementById('roll20AdminBtn').classList.remove('btn-success');
+    document.getElementById('roll20LogoutBtn').style.display = 'none';
+    
+    // 세션 카드 이미지 버튼 숨기기
+    document.getElementById('roll20AddImageBtn').style.display = 'none';
+    document.getElementById('roll20EditImageBtn').style.display = 'none';
+    
+    // 세션 날짜 수정 버튼 숨기기
+    document.getElementById('roll20EditDateBtn').style.display = 'none';
+    
+    // 채팅 컨테이너에서 admin-mode 클래스 제거
+    document.getElementById('roll20ChatContent').classList.remove('admin-mode');
+    
+    // 수정/삭제 버튼 제거
+    removeAdminActionsFromMessages();
+}
+
+// Roll20 로그아웃
+function roll20Logout() {
+    roll20IsAdmin = false;
+    roll20Password = null;
+    hideRoll20AdminPanel();
+}
+
+// 메시지에 수정/삭제 버튼 추가
+function addAdminActionsToMessages() {
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    messages.forEach((msg, index) => {
+        // 이미 버튼이 있으면 스킵
+        if (msg.querySelector('.admin-actions')) return;
+        
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'admin-actions';
+        actionsDiv.innerHTML = `
+            <button class="btn-edit" title="수정" onclick="editRoll20Message(${index})">✏️</button>
+            <button class="btn-delete" title="삭제" onclick="deleteRoll20Message(${index})">🗑️</button>
+        `;
+        msg.appendChild(actionsDiv);
+        msg.dataset.index = index;
+    });
+}
+
+// 메시지에서 수정/삭제 버튼 제거
+function removeAdminActionsFromMessages() {
+    const actionButtons = document.querySelectorAll('.roll20-chat-content .admin-actions');
+    actionButtons.forEach(btn => btn.remove());
+}
+
+// 메시지 수정
+function editRoll20Message(index) {
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    const msg = messages[index];
+    if (!msg || msg.classList.contains('editing')) return;
+    
+    // 현재 전체 HTML 저장
+    const originalContent = msg.innerHTML;
+    
+    // 메시지 본문만 추출 (구조 요소 제외)
+    const messageBody = getMessageBody(msg);
+    
+    msg.classList.add('editing');
+    msg.dataset.originalContent = originalContent;
+    
+    // 편집 UI를 기존 내용 아래에 추가
+    const editDiv = document.createElement('div');
+    editDiv.className = 'edit-container';
+    editDiv.innerHTML = `
+        <textarea class="edit-textarea">${messageBody}</textarea>
+        <div class="edit-actions">
+            <button class="btn-save" onclick="saveRoll20MessageEdit(${index})">저장</button>
+            <button class="btn-cancel" onclick="cancelRoll20MessageEdit(${index})">취소</button>
+        </div>
+    `;
+    
+    // 원본 내용 숨기고 편집 UI 표시
+    const wrapper = document.createElement('div');
+    wrapper.className = 'original-content-hidden';
+    wrapper.innerHTML = originalContent;
+    wrapper.style.display = 'none';
+    
+    msg.innerHTML = '';
+    msg.appendChild(wrapper);
+    msg.appendChild(editDiv);
+    msg.querySelector('.edit-textarea').focus();
+}
+
+// 메시지 본문만 추출 (spacer, avatar, by, tstamp 제외)
+function getMessageBody(msg) {
+    const clone = msg.cloneNode(true);
+    
+    // 구조 요소 제거
+    clone.querySelectorAll('.spacer, .avatar, .by, .tstamp, .admin-actions').forEach(el => el.remove());
+    
+    // 남은 HTML 반환
+    return clone.innerHTML.trim();
+}
+
+// 메시지 수정 저장
+async function saveRoll20MessageEdit(index) {
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    const msg = messages[index];
+    if (!msg) return;
+    
+    const textarea = msg.querySelector('.edit-textarea');
+    const newBody = textarea.value;
+    const originalWrapper = msg.querySelector('.original-content-hidden');
+    
+    if (!originalWrapper) {
+        cancelRoll20MessageEdit(index);
+        return;
+    }
+    
+    // 원본 구조에서 본문만 교체
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = originalWrapper.innerHTML;
+    
+    // admin-actions 제거 (나중에 다시 추가)
+    tempDiv.querySelectorAll('.admin-actions').forEach(el => el.remove());
+    
+    // 본문 부분 찾아서 교체
+    // spacer, avatar, by, tstamp 이후의 내용을 새 본문으로 교체
+    const spacer = tempDiv.querySelector('.spacer');
+    const avatar = tempDiv.querySelector('.avatar');
+    const by = tempDiv.querySelector('.by');
+    const tstamp = tempDiv.querySelector('.tstamp');
+    
+    // 구조 요소들을 임시 저장
+    const structureElements = [];
+    if (spacer) structureElements.push(spacer.cloneNode(true));
+    if (avatar) structureElements.push(avatar.cloneNode(true));
+    if (tstamp) structureElements.push(tstamp.cloneNode(true));
+    if (by) structureElements.push(by.cloneNode(true));
+    
+    // 메시지 재구성
+    msg.classList.remove('editing');
+    msg.innerHTML = '';
+    
+    // 구조 요소 추가
+    structureElements.forEach(el => msg.appendChild(el));
+    
+    // 새 본문 추가
+    const bodySpan = document.createElement('span');
+    bodySpan.innerHTML = newBody;
+    msg.appendChild(bodySpan);
+    
+    // admin-actions 다시 추가
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'admin-actions';
+    actionsDiv.innerHTML = `
+        <button class="btn-edit" title="수정" onclick="editRoll20Message(${index})">✏️</button>
+        <button class="btn-delete" title="삭제" onclick="deleteRoll20Message(${index})">🗑️</button>
+    `;
+    msg.appendChild(actionsDiv);
+    
+    // 캐릭터별 배경색 다시 적용
+    applyRoll20CharacterColors();
+    
+    // Firebase에 저장
+    await saveRoll20ContentToFirebase();
+}
+
+// 메시지 수정 취소
+function cancelRoll20MessageEdit(index) {
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    const msg = messages[index];
+    if (!msg) return;
+    
+    const originalContent = msg.dataset.originalContent;
+    msg.classList.remove('editing');
+    msg.innerHTML = originalContent;
+    
+    // 캐릭터별 배경색 다시 적용
+    applyRoll20CharacterColors();
+}
+
+// 메시지 삭제
+async function deleteRoll20Message(index) {
+    if (!confirm('이 메시지를 삭제하시겠습니까?')) return;
+    
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    const msg = messages[index];
+    if (!msg) return;
+    
+    msg.remove();
+    
+    // 인덱스 재할당
+    reindexRoll20Messages();
+    
+    // Firebase에 저장
+    await saveRoll20ContentToFirebase();
+}
+
+// 메시지 인덱스 재할당
+function reindexRoll20Messages() {
+    const messages = document.querySelectorAll('.roll20-chat-content .message');
+    messages.forEach((msg, index) => {
+        msg.dataset.index = index;
+        const editBtn = msg.querySelector('.btn-edit');
+        const deleteBtn = msg.querySelector('.btn-delete');
+        if (editBtn) editBtn.setAttribute('onclick', `editRoll20Message(${index})`);
+        if (deleteBtn) deleteBtn.setAttribute('onclick', `deleteRoll20Message(${index})`);
+    });
+}
+
+// 현재 콘텐츠를 Firebase에 저장
+async function saveRoll20ContentToFirebase() {
+    if (!roll20IsAdmin || !roll20RoomId || !activeRoll20LogId) return;
+    
+    const container = document.getElementById('roll20ChatContent');
+    
+    // admin-actions 제거한 클린 HTML 생성
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll('.admin-actions').forEach(el => el.remove());
+    clone.querySelectorAll('.message').forEach(el => {
+        el.classList.remove('editing');
+        delete el.dataset.index;
+        delete el.dataset.originalContent;
+    });
+    
+    const cleanHtml = clone.innerHTML;
+    
+    // HTML 입력란도 업데이트
+    document.getElementById('roll20HtmlInput').value = cleanHtml;
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}`).update({
+        content: cleanHtml,
+        updated_at: Date.now()
+    });
+}
+
+// Roll20 HTML 저장
+async function saveRoll20Html() {
+    if (!roll20IsAdmin || !roll20RoomId) {
+        alert('관리자 권한이 필요합니다.');
+        return;
+    }
+    
+    if (!activeRoll20LogId) {
+        alert('먼저 로그를 선택하거나 새 로그를 추가하세요.');
+        return;
+    }
+
+    const htmlContent = document.getElementById('roll20HtmlInput').value;
+    
+    await database.ref(`roll20_rooms/${roll20RoomId}/logs/${activeRoll20LogId}`).update({
+        content: htmlContent,
+        updated_at: Date.now()
+    });
+
+    alert('저장되었습니다!');
+}
+
+// Roll20 HTML 미리보기
+function previewRoll20Html() {
+    const htmlContent = document.getElementById('roll20HtmlInput').value;
+    renderRoll20Content(htmlContent);
+}
+
+// Roll20 URL 업데이트
+function updateRoll20URL() {
+    const url = new URL(window.location.href);
+    url.searchParams.set('roll20', roll20RoomId);
+    window.history.replaceState({}, '', url.toString());
+}
+
+// Roll20 공유 모달 열기
+function openRoll20ShareModal() {
+    document.getElementById('roll20ShareModal').classList.add('active');
+    document.getElementById('roll20ShareStatus').textContent = '';
+    document.getElementById('roll20ShareStatus').className = 'share-status';
+    
+    // 이미 룸이 있으면 링크 표시
+    if (roll20RoomId) {
+        const shareUrl = `${window.location.origin}${window.location.pathname}?roll20=${roll20RoomId}`;
+        document.getElementById('roll20ShareLink').value = shareUrl;
+        document.getElementById('roll20CopyLinkBtn').disabled = false;
+    } else {
+        document.getElementById('roll20ShareLink').value = '';
+        document.getElementById('roll20CopyLinkBtn').disabled = true;
+    }
+}
+
+// Roll20 공유 모달 닫기
+function closeRoll20ShareModal() {
+    document.getElementById('roll20ShareModal').classList.remove('active');
+}
+
+// Roll20 공유 링크 생성
+async function generateRoll20ShareLink() {
+    const statusEl = document.getElementById('roll20ShareStatus');
+    statusEl.textContent = '링크 생성 중...';
+    statusEl.className = 'share-status loading';
+
+    try {
+        // 룸이 없으면 새로 생성 (비밀번호 모달 열기)
+        if (!roll20RoomId) {
+            statusEl.textContent = '먼저 관리자 모드로 로그인하여 룸을 생성하세요.';
+            statusEl.className = 'share-status error';
+            return;
+        }
+
+        const shareUrl = `${window.location.origin}${window.location.pathname}?roll20=${roll20RoomId}`;
+        document.getElementById('roll20ShareLink').value = shareUrl;
+        document.getElementById('roll20CopyLinkBtn').disabled = false;
+        
+        statusEl.textContent = '링크가 생성되었습니다!';
+        statusEl.className = 'share-status success';
+    } catch (error) {
+        console.error('링크 생성 실패:', error);
+        statusEl.textContent = '링크 생성에 실패했습니다.';
+        statusEl.className = 'share-status error';
+    }
+}
+
+// Roll20 공유 링크 복사
+function copyRoll20ShareLink() {
+    const linkInput = document.getElementById('roll20ShareLink');
+    linkInput.select();
+    document.execCommand('copy');
+    
+    const statusEl = document.getElementById('roll20ShareStatus');
+    statusEl.textContent = '링크가 복사되었습니다!';
+    statusEl.className = 'share-status success';
+}
+
+// DOMContentLoaded에 Roll20 초기화 추가
+document.addEventListener('DOMContentLoaded', () => {
+    initRoll20();
+});
