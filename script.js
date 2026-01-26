@@ -1989,8 +1989,10 @@ function subscribeToRoll20Room(roomId) {
             if (!activeRoll20LogId || !activeExists) {
                 selectRoll20Log(roll20Logs[0].id);
             } else {
-                // 이미 선택된 로그가 있으면 콘텐츠 로드
-                loadRoll20LogContent(activeRoll20LogId);
+                // 이미 선택된 로그가 있고, 아직 구독 중이 아니면 콘텐츠 로드
+                if (!roll20CurrentLogRef) {
+                    loadRoll20LogContent(activeRoll20LogId);
+                }
                 const log = roll20Logs.find(l => l.id === activeRoll20LogId);
                 if (log) {
                     document.getElementById('roll20CurrentLogTitle').textContent = log.title;
