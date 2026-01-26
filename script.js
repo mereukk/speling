@@ -1821,9 +1821,9 @@ async function addRoll20Log() {
         // Firebase에 저장
         await database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).set(newLog);
         
-        // 로컬 목록에 추가하고 선택
-        roll20Logs.push({ id: logId, title: title, created_at: newLog.created_at });
-        selectRoll20Log(logId);
+        // 목록 다시 로드
+        activeRoll20LogId = logId;
+        loadRoll20LogList(roll20RoomId);
     } catch (error) {
         console.error('로그 추가 실패:', error);
         alert('로그 추가에 실패했습니다. 다시 시도해주세요.');
@@ -1853,6 +1853,9 @@ async function renameRoll20Log(logId) {
     if (logId === activeRoll20LogId) {
         document.getElementById('roll20CurrentLogTitle').textContent = newTitle;
     }
+    
+    // 목록 다시 로드
+    loadRoll20LogList(roll20RoomId);
 }
 
 // Roll20 삭제 모드 토글
@@ -1896,18 +1899,22 @@ async function confirmRoll20Delete() {
         await database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).remove();
     }
     
-    // 로컬에서 삭제
-    roll20Logs = roll20Logs.filter(log => !roll20SelectedForDelete.has(log.id));
-    
     // 현재 선택된 로그가 삭제되었으면 초기화
     if (roll20SelectedForDelete.has(activeRoll20LogId)) {
         activeRoll20LogId = null;
+        if (roll20CurrentLogRef) {
+            roll20CurrentLogRef.off();
+            roll20CurrentLogRef = null;
+        }
         document.getElementById('roll20CurrentLogTitle').textContent = '로그를 선택하세요';
         document.getElementById('roll20ChatContent').innerHTML = 
             '<p class="roll20-empty-message">로그를 선택하거나 새 로그를 추가하세요.</p>';
     }
     
     cancelRoll20DeleteMode();
+    
+    // 목록 다시 로드
+    loadRoll20LogList(roll20RoomId);
 }
 
 // 앱 전환
@@ -1962,10 +1969,13 @@ function subscribeToRoll20Room(roomId) {
         }
     });
 
-    // 로그 목록 구독
-    roll20LogsRef = database.ref(`roll20_rooms/${roomId}/logs`);
-    
-    roll20LogsRef.on('value', (snapshot) => {
+    // 로그 목록 로드 (한 번만)
+    loadRoll20LogList(roomId);
+}
+
+// 로그 목록 로드
+function loadRoll20LogList(roomId) {
+    database.ref(`roll20_rooms/${roomId}/logs`).once('value', (snapshot) => {
         const data = snapshot.val();
         roll20Logs = [];
         
@@ -1989,10 +1999,8 @@ function subscribeToRoll20Room(roomId) {
             if (!activeRoll20LogId || !activeExists) {
                 selectRoll20Log(roll20Logs[0].id);
             } else {
-                // 이미 선택된 로그가 있고, 아직 구독 중이 아니면 콘텐츠 로드
-                if (!roll20CurrentLogRef) {
-                    loadRoll20LogContent(activeRoll20LogId);
-                }
+                // 이미 선택된 로그가 있으면 콘텐츠 로드
+                loadRoll20LogContent(activeRoll20LogId);
                 const log = roll20Logs.find(l => l.id === activeRoll20LogId);
                 if (log) {
                     document.getElementById('roll20CurrentLogTitle').textContent = log.title;
