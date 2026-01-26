@@ -2206,6 +2206,9 @@ function showRoll20AdminPanel() {
     // 세션 날짜 수정 버튼 표시
     document.getElementById('roll20EditDateBtn').style.display = 'block';
     
+    // 메모 추가 버튼 표시
+    document.getElementById('roll20AddNoteBtn').style.display = 'block';
+    
     // 채팅 컨테이너에 admin-mode 클래스 추가
     document.getElementById('roll20ChatContent').classList.add('admin-mode');
     
@@ -2226,6 +2229,9 @@ function hideRoll20AdminPanel() {
     
     // 세션 날짜 수정 버튼 숨기기
     document.getElementById('roll20EditDateBtn').style.display = 'none';
+    
+    // 메모 추가 버튼 숨기기
+    document.getElementById('roll20AddNoteBtn').style.display = 'none';
     
     // 채팅 컨테이너에서 admin-mode 클래스 제거
     document.getElementById('roll20ChatContent').classList.remove('admin-mode');
