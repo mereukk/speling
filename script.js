@@ -1949,10 +1949,6 @@ function subscribeToRoll20Room(roomId) {
         roll20LogsRef.off();
         roll20LogsRef = null;
     }
-    if (roll20CurrentLogRef) {
-        roll20CurrentLogRef.off();
-        roll20CurrentLogRef = null;
-    }
 
     // 앱 제목 로드
     database.ref(`roll20_rooms/${roomId}/app_title`).once('value', (snapshot) => {
