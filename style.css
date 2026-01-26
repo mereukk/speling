@@ -1276,7 +1276,7 @@ body {
 
 /* Roll20 사이드바 열기 버튼 */
 #roll20OpenSidebar {
-    position: absolute;
+    position: fixed;
     left: 0;
     top: 50%;
     transform: translateY(-50%);
@@ -1288,9 +1288,12 @@ body {
     border-radius: 0 8px 8px 0;
     cursor: pointer;
     font-size: 0.8rem;
-    z-index: 99;
+    z-index: 999;
     display: none;
     transition: background 0.2s;
+    padding: 0;
+    line-height: 60px;
+    text-align: center;
 }
 
 #roll20OpenSidebar:hover {
