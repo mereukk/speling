@@ -1563,14 +1563,7 @@ let roll20CurrentLogRef = null;
 function loadRoll20LogContent(logId) {
     if (!roll20RoomId || !logId) return;
     
-    // 기존 구독 해제
-    if (roll20CurrentLogRef) {
-        roll20CurrentLogRef.off();
-        roll20CurrentLogRef = null;
-    }
-    
-    roll20CurrentLogRef = database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`);
-    roll20CurrentLogRef.on('value', (snapshot) => {
+    database.ref(`roll20_rooms/${roll20RoomId}/logs/${logId}`).once('value', (snapshot) => {
         const data = snapshot.val();
         
         // 세션 카드 이미지 처리
